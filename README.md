@@ -1,14 +1,18 @@
 <div align="center">
-  <h1>贵金属趋势分析机器人</h1>
+  <h1>🤖 MetalTrend AI - 智能贵金属趋势分析系统</h1>
   <p>
-    <strong>一个基于 AI 的自动化贵金属（黄金/白银）市场分析工具，助您洞察先机。</strong>
+    <strong>基于 AI 的自动化贵金属（黄金/白银）市场分析工具，集成 LLM 与专业技术指标，助您洞察先机。</strong>
   </p>
   <p>
     <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
-    <img src="https://img.shields.io/badge/Status-✅%20Active-green.svg" alt="Status Active">
+    <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+    <a href="https://github.com/qubyyang/metal_trend_analysis/stargazers"><img src="https://img.shields.io/github/stars/qubyyang/metal_trend_analysis?style=social" alt="GitHub Stars"></a>
+    <a href="https://github.com/qubyyang/metal_trend_analysis/network/members"><img src="https://img.shields.io/github/forks/qubyyang/metal_trend_analysis?style=social" alt="GitHub Forks"></a>
+    <img src="https://img.shields.io/badge/Maintained-Yes-green.svg" alt="Maintenance">
+    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome">
   </p>
 </div>
 
@@ -16,20 +20,16 @@
 
 **贵金属趋势分析机器人** 是一个功能强大的 Python 工具，它整合了实时市场数据、经典技术分析以及先进的大语言模型（LLM）智能，为您提供全面、深入的黄金和白银市场洞察。分析结果将以结构化报告的形式生成，并可实时推送到飞书，让您随时随地掌握市场动态。
 
-## ✨ 核心功能
+## 🌟 项目特色
 
-- **📈 实时行情获取**: 对接 iTick API，获取毫秒级更新的贵金属实时报价和 K 线数据。
-- **📊 专业技术分析**:
-  - **多指标计算**: 自动计算 MA, MACD, RSI, 布林带等关键技术指标。
-  - **趋势智能研判**: 结合多指标分析，判断当前市场趋势（看涨/看跌/震荡）。
-  - **关键位识别**: 自动识别并计算重要的支撑位和阻力位。
-- **🕯️ K线形态识别**: 自动识别十多种经典 K 线形态，如“十字星”、“锤子线”、“吞噬形态”等，洞察市场反转或持续信号。
-- **🤖 LLM 智能分析**:
-  - **综合研判**: 利用大语言模型（如 GPT 系列）的强大能力，结合行情数据和技术指标，生成对市场趋势、风险等级和交易策略的综合分析。
-  - **自然语言报告**: 将复杂的分析结果转化为通俗易懂的自然语言结论和操作建议。
-- **📄 自动化报告**: 一键生成结构清晰、内容详实的 Markdown 分析报告，方便复盘和分享。
-- **🚀 飞书实时推送**: 将分析报告（包括图表和摘要）实时推送到您的飞书群组，确保信息及时触达。
-- **⚙️ 高度可配置**: 所有参数（API密钥、模型选择、通知渠道等）均通过 YAML 文件进行配置，灵活易用。
+- **🤖 AI驱动分析**: 集成GPT-4等大语言模型，生成专业市场研判和自然语言报告
+- **📊 专业技术分析**: 自动计算MA、MACD、RSI、布林带等关键技术指标
+- **📡 实时数据**: 对接iTick API，毫秒级行情更新，确保数据实时性
+- **🕯️ K线形态识别**: 智能识别十多种经典K线形态（十字星、锤子线、吞噬形态等）
+- **📱 多渠道推送**: 支持飞书、邮件等多种通知方式，确保信息及时触达
+- **⚙️ 高度可配置**: YAML配置文件，灵活定制分析参数和模型选择
+- **🎯 智能趋势研判**: 结合多指标分析，自动判断市场趋势（看涨/看跌/震荡）
+- **📍 关键位识别**: 自动计算并标识重要的支撑位和阻力位
 
 ## 成果展示
 
@@ -41,18 +41,39 @@
 
 ## 🚀 快速开始
 
-仅需几步，即可启动您的专属市场分析机器人。
+### Python虚拟环境安装
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/qubyyang/metal_trend_analysis.git
+cd metal_trend_analysis
+
+# 2. 创建虚拟环境
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+# venv\Scripts\activate   # Windows
+
+# 3. 安装依赖
+pip install -r requirements.txt
+
+# 4. 运行分析
+python src/main.py
+```
+
+---
+
+## 📋 详细安装步骤
 
 ### 1. 环境准备
 
 - Python 3.10 或更高版本
 - Git
 
-### 2. 克隆与安装
+### 2. 安装
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-username/metal_trend_analysis.git
+git clone https://github.com/qubyyang/metal_trend_analysis.git
 cd metal_trend_analysis
 
 # 2. (推荐) 创建并激活虚拟环境
@@ -75,11 +96,11 @@ cp config/config.yaml.example config/config.yaml
 ```
 
 您需要配置以下关键信息：
-- `itick.token`: iTick API 的访问令牌。
-- `llm.api_key`: 您选择的大语言模型提供商的 API Key。
-- `llm.base_url` (可选): 如果您使用代理或私有部署的 LLM，请配置此项。
-- `llm.model`: 指定要使用的模型名称，例如 `gpt-4-turbo`。
-- `feishu.webhook_url`: 飞书机器人的 Webhook 地址。
+- `itick.token`: iTick API 的访问令牌
+- `llm.api_key`: 您选择的大语言模型提供商的 API Key
+- `llm.base_url` (可选): 如果您使用代理或私有部署的 LLM，请配置此项
+- `llm.model`: 指定要使用的模型名称，例如 `gpt-4-turbo`
+- `feishu.webhook_url`: 飞书机器人的 Webhook 地址
 
 ### 4. 运行分析
 
@@ -117,20 +138,140 @@ metal_trend_analysis/
 │   ├── notification/      # 📢 通知模块 (飞书)
 │   ├── reporting/         # 📄 报告生成模块
 │   └── utils/             # 🛠️ 工具类 (配置加载, 日志)
+├── .github/               # GitHub 配置
+│   ├── workflows/         # GitHub Actions
+│   └── ISSUE_TEMPLATE/    # Issue 模板
+├── examples/              # 示例代码
+├── tests/                 # 单元测试
 ├── .gitignore
+├── LICENSE
 ├── README.md              # 本文档
+├── README_EN.md           # 英文文档
 └── requirements.txt       # Python 依赖
 ```
+
+## 🏗️ 系统架构
+
+MetalTrend AI 采用模块化架构设计，各组件职责清晰，易于扩展和维护。
+
+### 核心模块说明
+
+1. **数据获取模块** (`data_fetchers/`)
+   - 对接iTick API获取实时行情数据
+   - 支持多种时间周期的K线数据
+   - 内置数据缓存机制，减少API调用
+
+2. **分析引擎** (`analyzers/`)
+   - 技术指标计算（MA、MACD、RSI、布林带等）
+   - K线形态识别（十字星、锤子线、吞噬形态等）
+   - 趋势研判和关键位识别
+
+3. **LLM分析模块** (`llm/`)
+   - 集成GPT系列大语言模型
+   - 生成自然语言市场分析报告
+   - 支持自定义prompt和模型选择
+
+4. **报告生成** (`reporting/`)
+   - 自动生成Markdown格式报告
+   - 包含图表、指标表格和AI分析结论
+   - 支持多种输出格式
+
+5. **通知系统** (`notification/`)
+   - 飞书机器人集成
+   - 邮件通知（即将支持）
+   - 推送失败重试机制
+
+## 🗺️ 发展路线图
+
+### ✅ 已完成 - v1.0
+- [x] iTick API数据获取
+- [x] 技术指标计算（MA、MACD、RSI、布林带）
+- [x] K线形态识别（10+种经典形态）
+- [x] LLM分析集成（GPT-4支持）
+- [x] 自动报告生成（Markdown格式）
+- [x] 飞书通知功能
+
+### 🚧 进行中 - v1.1
+- [ ] Docker一键部署
+- [ ] 配置向导
+- [ ] 错误处理优化
+- [ ] 单元测试覆盖
+- [ ] CI/CD流程
+
+### 📅 计划中 - v1.2
+- [ ] Web界面（Streamlit）
+- [ ] 更多技术指标（KDJ、OBV等）
+- [ ] 自定义交易策略支持
+- [ ] 历史数据回测功能
+- [ ] 邮件通知支持
+
+### 🎯 未来规划 - v2.0
+- [ ] 机器学习模型集成
+- [ ] 多交易所数据支持
+- [ ] 移动端APP
+- [ ] 社区策略分享平台
+- [ ] 实时交易信号推送
+
+---
+
+## 📊 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| **语言** | Python 3.10+ |
+| **数据处理** | Pandas, NumPy |
+| **机器学习** | OpenAI API, LangChain |
+| **技术分析** | TA-Lib, Pandas TA |
+| **可视化** | Matplotlib, Plotly |
+| **API** | iTick API, Feishu API |
+
+---
 
 ## 🤝 贡献指南
 
 我们热烈欢迎任何形式的贡献！无论是功能建议、代码优化、Bug 修复还是文档改进，都对我们至关重要。
 
-请参考 [CONTRIBUTING.md](CONTRIBUTING.md)（待创建）了解详细的贡献流程。
+### 如何贡献
+
+1. **Fork 本仓库**
+2. **创建特性分支** (`git checkout -b feature/AmazingFeature`)
+3. **提交更改** (`git commit -m 'Add some AmazingFeature'`)
+4. **推送分支** (`git push origin feature/AmazingFeature`)
+5. **开启 Pull Request**
+
+请参考 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详细的贡献流程和代码规范。
 
 ## 📄 开源许可
 
 本项目基于 [MIT License](LICENSE) 开源。
+
+---
+
+## 📚 相关资源
+
+- [项目文档](docs/)
+- [示例代码](examples/)
+- [API文档](docs/api/)
+- [常见问题](docs/faq.md)
+
+## 🌟 社区与支持
+
+- **GitHub Issues**: 报告Bug或提出新功能
+- **GitHub Discussions**: 技术讨论和问答
+- **Discord社区**: 即时交流和分享（即将推出）
+
+---
+
+## 🏷️ 相关标签
+
+```
+gold, silver, trading, technical-analysis, llm, gpt,
+precious-metals, quantitative-finance, ai, python,
+trend-analysis, market-analysis, algorithmic-trading,
+chatgpt, open-source, fin-tech
+```
+
+---
 
 ## ⚠️ 免责声明
 
@@ -139,5 +280,11 @@ metal_trend_analysis/
 ---
 
 <div align="center">
-  <strong>如果这个项目对您有帮助，请给一个 ⭐️ Star！</strong>
+  <h3>🙏 如果这个项目对您有帮助，请给一个 ⭐️ Star！</h3>
+  <p>您的支持是我们持续优化的动力 💪</p>
+  <p>
+    <a href="https://github.com/qubyyang/metal_trend_analysis">
+      <img src="https://img.shields.io/badge/GitHub-MetalTrend%20AI-blue?logo=github" alt="GitHub">
+    </a>
+  </p>
 </div>

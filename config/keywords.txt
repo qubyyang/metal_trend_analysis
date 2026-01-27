@@ -1,0 +1,219 @@
+# Gold and Silver Related Keywords (Bilingual / 双语关键词)
+
+# Basic Terms / 基础术语
+黄金
+白银
+金价
+银价
+XAU
+XAG
+现货黄金
+现货白银
+黄金期货
+白银期货
+Gold
+Silver
+Gold Price
+Silver Price
+Spot Gold
+Spot Silver
+Gold Futures
+Silver Futures
+XAUUSD
+XAGUSD
+
+# Investment Products / 投资产品
+黄金ETF
+白银ETF
+金条
+银条
+金币
+银币
+黄金储备
+白银储备
+Gold ETF
+Silver ETF
+Gold Bar
+Silver Bar
+Gold Coin
+Silver Coin
+Gold Reserves
+Silver Reserves
+ETF
+Holdings
+
+# Market Indicators / 市场指标
+美联储
+利率
+通胀
+CPI
+非农数据
+ADP
+FOMC
+GDP
+PMI
+PPI
+失业率
+零售销售
+消费者信心
+Federal Reserve
+Interest Rate
+Inflation
+CPI
+Non-farm Payrolls
+ADP
+FOMC
+GDP
+PMI
+PPI
+Unemployment Rate
+Retail Sales
+Consumer Confidence
+
+# Market Factors / 市场因素
+地缘政治
+避险
+美元指数
+美债收益率
+央行购金
+ETF持仓
+CFTC
+风险偏好
+流动性
+量化宽松
+加息
+降息
+Geopolitical
+Safe Haven
+US Dollar Index
+US Treasury Yields
+Central Bank Gold Purchases
+ETF Holdings
+CFTC
+Risk Appetite
+Liquidity
+QE
+Rate Hike
+Rate Cut
+Monetary Policy
+
+# Technical Analysis / 技术分析
+技术分析
+支撑位
+阻力位
+突破
+回调
+趋势
+多头
+空头
+成交量
+波动率
+Technical Analysis
+Support Level
+Resistance Level
+Breakout
+Pullback
+Trend
+Bullish
+Bearish
+Volume
+Volatility
+
+# Market Events / 市场事件
+美联储议息会议
+央行政策
+贸易战
+制裁
+危机
+经济数据
+财报
+Fed Meeting
+Central Bank Policy
+Trade War
+Sanctions
+Crisis
+Economic Data
+Earnings
+
+# Price Related / 价格相关
+涨
+跌
+上涨
+下跌
+突破
+暴跌
+暴涨
+震荡
+盘整
+Rise
+Fall
+Up
+Down
+Breakthrough
+Plunge
+Surge
+Volatile
+Consolidation
+
+# Precious Metals / 贵金属
+贵金属
+铂金
+钯金
+Precious Metals
+Platinum
+Palladium
+
+# Trading Related / 交易相关
+做多
+做空
+仓位
+止损
+止盈
+套利
+Long
+Short
+Position
+Stop Loss
+Take Profit
+Arbitrage
+Trading
+Investment
+Speculation
+Hedging
+
+# Economic Events / 经济事件
+非农
+初请失业金
+ISM
+非制造业PMI
+制造业PMI
+NFP
+Jobless Claims
+ISM
+Services PMI
+Manufacturing PMI
+
+# Currency Related / 货币相关
+美元
+欧元
+日元
+英镑
+人民币
+Dollar
+Euro
+Yen
+Pound
+Yuan
+Currency
+Forex
+Exchange Rate
+
+# Commodity Related / 商品相关
+大宗商品
+原油
+铜
+铝
+Commodities
+Crude Oil
+Copper
+Aluminum

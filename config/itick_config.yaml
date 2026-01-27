@@ -1,0 +1,37 @@
+# iTick API Detailed Configuration
+token: "${ITICK_API_TOKEN}"  # Read from environment variable, or enter your token directly
+timeout: 30
+retry: 3
+retry_delay: 2
+
+# API base URLs for different asset types
+base_urls:
+  crypto: "https://api.itick.org/crypto"      # 加密货币
+  forex: "https://api.itick.org/forex"        # 外汇（包括贵金属 XAUUSD, XAGUSD）
+  indices: "https://api.itick.org/indices"    # 指数
+  stock: "https://api.itick.org/stock"        # 股票
+  future: "https://api.itick.org/future"      # 期货
+  fund: "https://api.itick.org/fund"          # 基金
+
+# Default base URL (for backward compatibility)
+base_url: "https://api.itick.org/forex"
+
+# API endpoints
+endpoints:
+  quote: "/quote"  # Real-time quote
+  kline: "/kline"  # K-line data
+  history: "/history"  # Historical data
+
+# Supported timeframes
+timeframes:
+  - "1m"
+  - "5m"
+  - "15m"
+  - "30m"
+  - "1h"
+  - "4h"
+  - "1d"
+  - "1w"
+
+# Default K-line data count
+default_kline_count: 200

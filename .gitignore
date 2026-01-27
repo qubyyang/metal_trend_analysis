@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# Environment Variables (sensitive data)
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific - Data files
+data/
+
+# Output files (generated content)
+output/
+
+# Internal documentation (development guides)
+docs/internal/
+
+# Config with real credentials
+config/config.yaml
+
+# Deprecated/unused modules (already removed from project)
+# config/news_sources.yaml
+# config/keywords.txt
+# src/data_fetchers/news_fetcher.py

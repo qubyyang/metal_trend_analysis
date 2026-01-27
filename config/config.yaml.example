@@ -1,0 +1,78 @@
+# iTick API 配置
+api:
+  itick:
+    base_url: "https://api.itick.org/forex"  # 外汇（包括贵金属）
+    token: "${ITICK_API_TOKEN}"  # 从环境变量读取，或直接填入你的 token
+    timeout: 30
+    retry: 3
+    retry_delay: 2
+
+# LLM API 配置
+llm:
+  provider: "openai"  # 可选: openai, deepseek, qwen, other
+  api_key: "${LLM_API_KEY}"
+  base_url: "${LLM_BASE_URL}"  # 可选，用于第三方 API（如 DeepSeek）
+  model: "${LLM_MODEL_NAME}"  # 如: gpt-4o, deepseek-chat
+  temperature: 0.7
+  max_tokens: 2000
+  timeout: 60
+
+# 分析品种配置
+instruments:
+  gold:
+    symbol: "XAUUSD"
+    name: "国际现货黄金"
+    region: "GB"
+    enabled: true
+  silver:
+    symbol: "XAGUSD"
+    name: "国际现货白银"
+    region: "GB"
+    enabled: true
+
+# 技术指标参数
+indicators:
+  ma:
+    periods: [5, 10, 20, 60]
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  rsi:
+    period: 14
+    overbought: 70
+    oversold: 30
+  bollinger:
+    period: 20
+    std_dev: 2
+
+# 支撑阻力位识别
+support_resistance:
+  lookback: 100
+  swing_points: 3
+  proximity: 0.01  # 1% 容差
+
+# 通知推送配置
+notification:
+  enabled: true
+  channels:
+    feishu:
+      enabled: true
+      webhook_url: "${FEISHU_WEBHOOK_URL}"  # 从环境变量读取，留空则不推送
+      timeout: 30
+  triggers:
+    on_analysis_complete: true  # 分析完成后推送
+    on_error: false  # 出错时推送
+
+# 报告配置
+reports:
+  output_dir: "output/reports"
+  format: "markdown"  # markdown, html, json
+  include_charts: false
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "output/logs/app.log"
+  max_size: 10485760  # 10MB
+  backup_count: 5

@@ -25,10 +25,11 @@
 - **🤖 AI-Driven Analysis**: Integrates GPT-4 and other large language models to generate professional market analysis and natural language reports
 - **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, and more
 - **📡 Real-Time Data**: Connects to iTick API for millisecond-level market updates, ensuring data freshness
+- **📰 News Sentiment Analysis**: Integrates Bloomberg, CNBC, Phoenix Finance and other news sources for intelligent market sentiment analysis
 - **🕯️ Candlestick Pattern Recognition**: Intelligently identifies 10+ classic candlestick patterns (Doji, Hammer, Engulfing, etc.)
 - **📱 Multi-Channel Notifications**: Supports Feishu, email, and other notification methods to ensure timely information delivery
 - **⚙️ Highly Configurable**: All parameters (API keys, model selection, notification channels, etc.) are configured via YAML files for flexibility
-- **🎯 Intelligent Trend Analysis**: Combines multiple indicators to automatically determine market trends (bullish/bearish/ranging)
+- **🎯 Intelligent Trend Analysis**: Combines technical and fundamental analysis to automatically determine market trends (bullish/bearish/ranging)
 - **📍 Key Level Identification**: Automatically calculates and identifies important support and resistance levels
 
 ---
@@ -105,6 +106,7 @@ You need to configure the following key information:
 - `llm.base_url` (optional): Configure this if you use a proxy or self-hosted LLM
 - `llm.model`: Specify the model name, e.g., `gpt-4-turbo`
 - `feishu.webhook_url`: Feishu bot's webhook URL
+- `news.sources`: News source configuration (includes verified sources: Bloomberg, CNBC, Phoenix Finance, etc.)
 
 ### 4. Run Analysis
 
@@ -123,6 +125,58 @@ After analysis is complete, reports will be saved in the `output/reports/` direc
 
 ---
 
+## 📰 News Sentiment Analysis Feature
+
+MetalTrend AI now integrates powerful news sentiment analysis capabilities, fetching relevant news from multiple authoritative sources and automatically analyzing market sentiment.
+
+### 🏢 Supported News Sources
+
+The system currently includes the following verified and available news sources:
+
+#### English News Sources
+- **Bloomberg Markets** - World's leading business and financial market information provider
+- **CNBC Market News** - Authoritative US business news source
+
+#### Chinese News Sources  
+- **Phoenix Finance** - Well-known Chinese financial media
+
+### 🔧 How It Works
+
+1. **News Fetching**: System periodically fetches latest news from configured RSS feeds
+2. **Keyword Filtering**: Filters relevant news based on keywords in `config/keywords.txt`
+3. **Sentiment Analysis**: Uses built-in sentiment lexicon to analyze positive/negative words in each article
+4. **Comprehensive Analysis**: Combines with technical analysis for holistic market insights
+
+### ⚙️ Configuration Guide
+
+In `config/config.yaml`, you can configure the following news-related options:
+
+```yaml
+news:
+  enabled: true  # Enable news fetching
+  max_articles: 10  # Maximum articles per source
+  cache_duration: 300  # Cache duration (seconds, 5 minutes)
+  fetch:
+    timeout: 15
+    delay: 2  # Request delay between different sources (seconds)
+    max_retries: 3
+  sources:
+    # Enable or disable different news sources as needed
+    - name: "Bloomberg Markets"
+      type: "rss"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      enabled: true
+    # ... other news source configurations
+```
+
+### 📊 Report Integration
+
+News sentiment analysis results are integrated into the final Markdown reports:
+- **News Sentiment Statistics**: Shows overall market sentiment trend
+- **Key Theme Identification**: Extracts high-frequency positive/negative words
+- **Representative Articles**: Displays most influential news articles
+- **LLM Deep Analysis**: Provides professional market insights combined with news content
+
 ## 📁 Project Structure
 
 ```
@@ -138,8 +192,8 @@ metal_trend_analysis/
 │   └── reports/           # Generated Markdown reports
 ├── src/                   # Core source code
 │   ├── main.py            # 🚀 Main entry point
-│   ├── analyzers/         # 📊 Analysis modules (indicators, candlestick patterns)
-│   ├── data_fetchers/     # 📡 Data fetching modules (iTick)
+│   ├── analyzers/         # 📊 Analysis modules (indicators, candlestick patterns, news sentiment)
+│   ├── data_fetchers/     # 📡 Data fetching modules (iTick, news fetching)
 │   ├── llm/               # 🤖 LLM analysis modules
 │   ├── notification/      # 📢 Notification modules (Feishu)
 │   ├── reporting/         # 📄 Report generation modules
@@ -170,6 +224,7 @@ MetalTrend AI adopts a modular architecture design with clear responsibilities f
 2. **Analysis Engine** (`analyzers/`)
    - Technical indicator calculations (MA, MACD, RSI, Bollinger Bands, etc.)
    - Candlestick pattern recognition (Doji, Hammer, Engulfing, etc.)
+   - News sentiment analysis (market sentiment quantification)
    - Trend analysis and key level identification
 
 3. **LLM Analysis Module** (`llm/`)
@@ -198,6 +253,7 @@ MetalTrend AI adopts a modular architecture design with clear responsibilities f
 - [x] LLM analysis integration (GPT-4 support)
 - [x] Automatic report generation (Markdown format)
 - [x] Feishu notification functionality
+- [x] News fetching and sentiment analysis (integrated verified sources: Bloomberg, CNBC, Phoenix Finance, etc.)
 
 ### 🚧 In Progress - v1.1
 - [ ] Docker one-click deployment

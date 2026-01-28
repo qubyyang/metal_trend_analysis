@@ -88,6 +88,28 @@ llm:
   api_key: "your_llm_api_key_here"
   base_url: "https://api.deepseek.com/v1"
   model: "gpt-4o"
+
+news:
+  enabled: true
+  max_articles: 10
+  cache_duration: 300
+  fetch:
+    timeout: 15
+    delay: 2
+    max_retries: 3
+  sources:
+    - name: "Bloomberg Markets"
+      type: "rss"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      enabled: true
+    - name: "CNBC Market News"
+      type: "rss"
+      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+      enabled: true
+    - name: "凤凰网财经"
+      type: "rss"
+      url: "https://finance.ifeng.com/rss/index.xml"
+      enabled: true
 ```
 
 ### 4. 验证配置
@@ -146,15 +168,95 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx
 #### 推送效果
 
 - 📊 每日汇总报告（黄金白银概览 + 黄金白银比）
-- 📈 单品种详细报告（行情、技术指标、K线形态、AI分析）
+- 📈 单品种详细报告（行情、技术指标、K线形态、新闻情感分析、AI分析）
 - 🔔 支持卡片消息格式，移动端阅读友好
+
+### 新闻关键词配置
+
+新闻抓取模块会使用`config/keywords.txt`中的关键词来筛选相关新闻。你可以编辑这个文件：
+
+```bash
+# 编辑关键词文件
+vim config/keywords.txt
+```
+
+文件格式（每行一个关键词）：
+```
+# 贵金属相关关键词
+gold
+silver
+precious metals
+黄金
+白银
+贵金属
+XAUUSD
+XAGUSD
+美元
+美联储
+通胀
+利率
+```
+
+- 以 `#` 开头的行是注释
+- 系统会自动忽略空行
+- 关键词不区分大小写
+- 建议包含中英文关键词以获得更全面的覆盖
 
 ### 新闻源配置
 
-在 `config/news_sources.yaml` 中可以：
-- 添加/删除新闻源
-- 启用/禁用特定新闻源
-- 调整请求参数
+系统内置以下已验证可用的新闻源：
+
+#### 英文新闻源
+- **Bloomberg Markets** - 全球领先的商业和金融市场信息提供商
+- **CNBC Market News** - 美国商业新闻权威机构
+
+#### 中文新闻源  
+- **凤凰网财经** - 知名中文财经媒体
+
+#### 配置说明
+新闻源配置在 `config/config.yaml` 的 `news.sources` 部分：
+
+```yaml
+news:
+  sources:
+    # 英文RSS新闻源
+    - name: "Bloomberg Markets"
+      type: "rss"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      enabled: true  # 启用或禁用该新闻源
+    - name: "CNBC Market News"
+      type: "rss"
+      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+      enabled: true
+    
+    # 中文RSS新闻源
+    - name: "凤凰网财经"
+      type: "rss"
+      url: "https://finance.ifeng.com/rss/index.xml"
+      enabled: true
+```
+
+#### 添加自定义新闻源
+你可以添加其他RSS新闻源：
+
+```yaml
+- name: "自定义新闻源"
+  type: "rss"
+  url: "https://example.com/rss.xml"
+  enabled: true
+```
+
+#### 注意
+以下新闻源已验证不可用或需要特殊处理，已暂时禁用：
+- Reuters: DNS解析失败
+- Financial Times: 404错误
+- MarketWatch: 403禁止访问
+- 新浪财经: 404错误
+- 腾讯财经: 301重定向
+- 网易财经: 404错误
+- 和讯网: 需要JavaScript处理
+- 东方财富网: 无RSS内容
+- 澎湃新闻: 302重定向
 
 ### 技术指标配置
 
@@ -239,12 +341,31 @@ source venv/bin/activate
 2. 增加 `config.yaml` 中的 `timeout` 值
 3. 暂时禁用有问题的新闻源
 
+### Q6: 新闻情感分析不准确
+
+**问题**: 情感分析结果与实际新闻内容不符
+
+**解决方案**:
+1. 检查 `config/keywords.txt` 是否包含相关关键词
+2. 调整新闻源的 `enabled` 设置，只启用高质量的新闻源
+3. 更新情感词典（修改 `src/analyzers/news_sentiment.py` 中的词汇列表）
+
+### Q7: 新闻抓取速度慢
+
+**问题**: 新闻抓取占用太多时间
+
+**解决方案**:
+1. 减少 `news.max_articles` 的值
+2. 启用缓存功能（`news.cache_duration`）
+3. 禁用不必要的新闻源
+4. 增加 `news.fetch.delay` 减少请求频率
+
 ## 运行示例
 
 ### 基本运行
 
 ```bash
-# 分析所有品种（黄金和白银）
+# 分析所有品种（黄金和白银），包含新闻情感分析
 python src/main.py
 
 # 只分析黄金
@@ -258,6 +379,9 @@ python src/main.py --timeframe 4h
 
 # 调试模式
 python src/main.py --debug
+
+# 禁用新闻功能
+python src/main.py --no-news
 ```
 
 ### 使用启动脚本

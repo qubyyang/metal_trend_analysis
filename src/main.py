@@ -13,8 +13,10 @@ sys.path.insert(0, str(project_root))
 from src.utils.config_loader import ConfigLoader
 from src.utils.logger import setup_logger, get_logger
 from src.data_fetchers.itick_client import ITickClient
+from src.data_fetchers.news_fetcher import NewsFetcher
 from src.analyzers.technical import TechnicalAnalyzer
 from src.analyzers.patterns import PatternRecognizer
+from src.analyzers.news_sentiment import NewsSentimentAnalyzer
 from src.llm.analyzer import LLMAnalyzer
 from src.reporting.generator import ReportGenerator
 from src.notification.feishu import FeishuNotifier
@@ -79,6 +81,51 @@ def main():
         reports_config = config.get('reports', {})
         report_generator = ReportGenerator(reports_config)
         logger.info("Report generator initialized successfully")
+
+        # News fetcher and sentiment analyzer
+        news_config = config.get('news', {})
+        news_fetcher = None
+        sentiment_analyzer = None
+        news_articles = []
+
+        if news_config.get('enabled', False):
+            try:
+                # Load keywords
+                keywords_file = Path('config/keywords.txt')
+                keywords = []
+                if keywords_file.exists():
+                    with open(keywords_file, 'r', encoding='utf-8') as f:
+                        keywords = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+                    logger.info(f"Loaded {len(keywords)} keywords from {keywords_file}")
+                else:
+                    logger.warning(f"Keywords file not found: {keywords_file}")
+
+                # Check if news sources are configured
+                news_sources = news_config.get('sources', [])
+                if not news_sources:
+                    logger.warning("No news sources configured in config.yaml")
+
+                # Initialize news fetcher (sources are read from news_config)
+                news_fetcher = NewsFetcher(
+                    config=news_config,
+                    keywords=keywords
+                )
+                logger.info(f"News fetcher initialized with {len(news_sources)} sources")
+
+                # Initialize sentiment analyzer
+                sentiment_analyzer = NewsSentimentAnalyzer()
+                logger.info("News sentiment analyzer initialized successfully")
+
+                # Fetch news
+                logger.info("Fetching news articles...")
+                news_articles = news_fetcher.fetch_all_news(use_cache=True)
+                logger.info(f"Fetched {len(news_articles)} news articles")
+
+            except Exception as e:
+                logger.error(f"Failed to initialize news modules: {str(e)}")
+                news_articles = []
+        else:
+            logger.info("News fetching is disabled in configuration")
 
         # Feishu notifier (飞书推送)
         notification_config = config.get('notification', {})
@@ -195,7 +242,7 @@ def main():
                     symbol,
                     quote_data,
                     technical_result,
-                    []  # news_articles disabled
+                    news_articles  # enabled
                 )
 
                 if llm_result.get('error'):
@@ -211,12 +258,19 @@ def main():
 
                 # 5.6 Generate report
                 logger.info("Generating analysis report...")
+
+                # Add news sentiment to technical result
+                if sentiment_analyzer and news_articles:
+                    sentiment_result = sentiment_analyzer.analyze_articles_sentiment(news_articles)
+                    technical_result['news_sentiment'] = sentiment_result
+                    logger.info(f"News sentiment: {sentiment_result.get('overall_sentiment', 'N/A')}")
+
                 report_content = report_generator.generate_markdown_report(
                     symbol,
                     symbol_name,
                     quote_data,
                     technical_result,
-                    [],  # news_articles disabled
+                    news_articles,  # enabled
                     llm_result
                 )
 

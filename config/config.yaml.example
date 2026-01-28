@@ -52,6 +52,43 @@ support_resistance:
   swing_points: 3
   proximity: 0.01  # 1% 容差
 
+# 新闻配置
+news:
+  enabled: true  # 启用新闻抓取
+  max_articles: 10  # 每个源最多抓取的文章数
+  cache_duration: 300  # 缓存时长（秒，5分钟）
+  fetch:
+    timeout: 15
+    delay: 2  # 不同源之间的请求延迟（秒）
+    max_retries: 3
+  sources:
+    # 英文RSS新闻源 (已验证可用)
+    - name: "Bloomberg Markets"
+      type: "rss"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      enabled: true
+    - name: "CNBC Market News"
+      type: "rss"
+      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+      enabled: true
+
+    # 中文RSS新闻源 (已验证可用)
+    - name: "凤凰网财经"
+      type: "rss"
+      url: "https://finance.ifeng.com/rss/index.xml"
+      enabled: true
+
+    # 注意：以下源已验证不可用或需要特殊处理，已暂时禁用
+    # - Reuters: DNS解析失败
+    # - Financial Times: 404错误
+    # - MarketWatch: 403禁止访问
+    # - 新浪财经: 404错误
+    # - 腾讯财经: 301重定向
+    # - 网易财经: 404错误
+    # - 和讯网: 需要JavaScript处理
+    # - 东方财富网: 无RSS内容
+    # - 澎湃新闻: 302重定向
+
 # 通知推送配置
 notification:
   enabled: true

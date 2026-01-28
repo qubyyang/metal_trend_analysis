@@ -219,6 +219,16 @@ class ReportGenerator:
         report_lines.append("### 3.2 相关新闻")
         report_lines.append("")
 
+        # 新闻情感分析
+        if 'news_sentiment' in technical_data:
+            from src.analyzers.news_sentiment import NewsSentimentAnalyzer
+            sentiment_analyzer = NewsSentimentAnalyzer()
+            sentiment_summary = sentiment_analyzer.get_sentiment_summary(technical_data['news_sentiment'])
+            report_lines.append(sentiment_summary)
+            report_lines.append("")
+            report_lines.append("**最新新闻**:")
+            report_lines.append("")
+
         if news_articles:
             for i, article in enumerate(news_articles[:5], 1):
                 report_lines.append(f"{i}. [{article.get('source', '')}] {article.get('title', '')}")

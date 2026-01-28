@@ -88,6 +88,28 @@ llm:
   api_key: "your_llm_api_key_here"
   base_url: "https://api.deepseek.com/v1"
   model: "gpt-4o"
+
+news:
+  enabled: true
+  max_articles: 10
+  cache_duration: 300
+  fetch:
+    timeout: 15
+    delay: 2
+    max_retries: 3
+  sources:
+    - name: "Bloomberg Markets"
+      type: "rss"
+      url: "https://feeds.bloomberg.com/markets/news.rss"
+      enabled: true
+    - name: "CNBC Market News"
+      type: "rss"
+      url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
+      enabled: true
+    - name: "Phoenix Finance"
+      type: "rss"
+      url: "https://finance.ifeng.com/rss/index.xml"
+      enabled: true
 ```
 
 ### 4. Verify Configuration
@@ -142,6 +164,70 @@ FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx
 ```
 
 If `FEISHU_WEBHOOK_URL` is empty, no notifications will be sent.
+
+### News Keywords Configuration
+
+The news fetching module uses keywords from `config/keywords.txt` to filter relevant news. You can edit this file:
+
+```bash
+# Edit keywords file
+vim config/keywords.txt
+```
+
+File format (one keyword per line):
+```
+# Precious metals related keywords
+gold
+silver
+precious metals
+黄金
+白银
+贵金属
+XAUUSD
+XAGUSD
+美元
+美联储
+通胀
+利率
+```
+
+- Lines starting with `#` are comments
+- Empty lines are automatically ignored
+- Keywords are case-insensitive
+- Include both English and Chinese keywords for better coverage
+
+### News Sources Configuration
+
+The system includes the following verified news sources:
+
+#### English News Sources
+- **Bloomberg Markets** - World's leading business and financial market information provider
+- **CNBC Market News** - Authoritative US business news source
+
+#### Chinese News Sources  
+- **Phoenix Finance** - Well-known Chinese financial media
+
+#### Adding Custom News Sources
+You can add other RSS news sources:
+
+```yaml
+- name: "Custom News Source"
+  type: "rss"
+  url: "https://example.com/rss.xml"
+  enabled: true
+```
+
+#### Note
+The following news sources have been verified as unavailable or require special handling, and are temporarily disabled:
+- Reuters: DNS resolution failed
+- Financial Times: 404 error
+- MarketWatch: 403 Forbidden
+- Sina Finance: 404 error
+- Tencent Finance: 301 Redirect
+- NetEase Finance: 404 error
+- Hexun: Requires JavaScript processing
+- East Money: No RSS content
+- The Paper: 302 Redirect
 
 ### Q1: pip install fails
 
@@ -203,12 +289,31 @@ source venv/bin/activate
 2. Increase `timeout` value in `config.yaml`
 3. Temporarily disable problematic news sources
 
+### Q6: News sentiment analysis inaccurate
+
+**Problem**: Sentiment analysis results don't match actual news content
+
+**Solution**:
+1. Check if `config/keywords.txt` contains relevant keywords
+2. Adjust news source `enabled` settings, only enable high-quality sources
+3. Update sentiment lexicon (modify vocabulary lists in `src/analyzers/news_sentiment.py`)
+
+### Q7: News fetching is slow
+
+**Problem**: News fetching takes too much time
+
+**Solution**:
+1. Reduce `news.max_articles` value
+2. Enable caching (`news.cache_duration`)
+3. Disable unnecessary news sources
+4. Increase `news.fetch.delay` to reduce request frequency
+
 ## Running Examples
 
 ### Basic Run
 
 ```bash
-# Analyze all instruments (gold and silver)
+# Analyze all instruments (gold and silver), includes news sentiment analysis
 python src/main.py
 
 # Analyze gold only
@@ -222,6 +327,9 @@ python src/main.py --timeframe 4h
 
 # Debug mode
 python src/main.py --debug
+
+# Disable news feature
+python src/main.py --no-news
 ```
 
 ### Using Startup Script

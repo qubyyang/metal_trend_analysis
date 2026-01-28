@@ -9,31 +9,42 @@ import time
 from pathlib import Path
 import json
 
+from .news_sources import get_news_sources_from_config
+
 
 class NewsFetcher:
     """News Fetcher"""
 
-    def __init__(self, config: Dict[str, Any], sources: List[Dict[str, Any]], keywords: List[str]):
+    def __init__(self, config: Dict[str, Any], sources: List[Dict[str, Any]] = None, keywords: List[str] = None):
         """
         Initialize News Fetcher
 
         Args:
             config: 新闻配置
-            sources: 新闻源配置列表
+            sources: 新闻源配置列表 (可选，如果不提供则从config读取)
             keywords: 关键词列表
         """
+        # 从配置读取设置
         self.enabled = config.get('enabled', True)
         self.max_articles = config.get('max_articles', 10)
-        self.cache_duration = config.get('cache_duration', 300)  # 秒
+        self.cache_duration = config.get('cache_duration', 300)
 
-        self.sources = sources
-        self.keywords = [k.lower() for k in keywords]
+        # 获取新闻源配置
+        if sources is None:
+            self.sources = get_news_sources_from_config(config, enabled_only=True)
+        else:
+            self.sources = sources
 
-        self.fetch_config = config.get('fetch', {
-            'timeout': 15,
-            'delay': 2,
-            'max_retries': 3
-        })
+        # 关键词
+        self.keywords = [k.lower() for k in keywords] if keywords else []
+
+        # Fetch配置
+        fetch_config = config.get('fetch', {})
+        self.fetch_config = {
+            'timeout': fetch_config.get('timeout', 15),
+            'delay': fetch_config.get('delay', 2),
+            'max_retries': fetch_config.get('max_retries', 3)
+        }
 
         # 缓存
         self.cache_file = Path('data/cache/news_cache.json')

@@ -226,13 +226,41 @@ class LLMAnalyzer:
 
 ## 三、基本面分析
 
-### 3.1 相关新闻
+### 3.1 相关新闻与市场影响分析
 """
         if news_articles:
-            for i, article in enumerate(news_articles[:5], 1):
-                prompt += f"\n{i}. [{article.get('source', '')}] {article.get('title', '')}"
+            prompt += f"\n\n共获取 {len(news_articles)} 篇相关新闻，请分析以下新闻对价格走势的影响：\n\n"
+            for i, article in enumerate(news_articles[:10], 1):
+                title = article.get('title', '')
+                source = article.get('source', '')
+                published = article.get('published', 'N/A')
+                content = article.get('content', '')
+                prompt += f"{i}. [{source}] {title}\n"
+                prompt += f"   时间: {published}\n"
+                if content and len(content) < 200:
+                    prompt += f"   内容: {content}\n"
+                prompt += "\n"
+
+            prompt += """
+**重要分析要求**：
+1. 分析每篇新闻的性质：
+   - 是"原因驱动型"新闻（如：美联储降息、通胀数据、地缘政治事件等导致价格变动）
+   - 还是"反应滞后型"新闻（如：市场对已有价格事件的评论和解读）
+   - 或是"预期引导型"新闻（如：即将公布的经济数据、央行会议等）
+
+2. 识别因果关系：
+   - 如果新闻是"原因驱动型"，说明该事件如何直接或间接影响贵金属价格
+   - 如果新闻是"反应滞后型"，说明该新闻是对当前价格走势的解读，而非价格变动的原因
+   - 如果新闻是"预期引导型"，说明该事件可能对价格产生的潜在影响
+
+3. 综合判断：
+   - 区分"价格变动导致新闻"和"新闻影响价格"两种不同情况
+   - 给出新闻对当前价格走势的驱动程度（强驱动/中等驱动/弱影响/无直接影响）
+   - 在操作建议中体现新闻因素的影响
+
+"""
         else:
-            prompt += "\n暂无相关新闻\n"
+            prompt += "\n暂无相关新闻，主要依赖技术面分析\n"
 
         prompt += """
 
@@ -252,7 +280,7 @@ class LLMAnalyzer:
 请基于以上数据，给出以下分析：
 
 1. **趋势方向**: 看涨/看跌/中性
-2. **操作建议**: 具体的操作建议（如：回调至支撑位可考虑做多/阻力位附近可考虑减仓等）
+2. **操作建议**: 具体的操作建议（如：回调至支撑位可考虑做多/阻力位附近可考虑减仓等，如受原因驱动型新闻影响，可适当调整仓位）
 3. **目标价位**: 短期和中期的目标价位
 4. **风险等级**: 低/中/高
 5. **置信度**: 对判断的置信程度（高/中/低）

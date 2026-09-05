@@ -97,6 +97,11 @@ class ReportGenerator:
         report_lines.append("")
 
         if technical_data:
+            # 综合信号评分（因子化引擎）
+            signal_detail = technical_data.get('signal_detail') or {}
+            if signal_detail.get('available'):
+                report_lines.extend(self._render_signal_score(signal_detail))
+
             # 趋势指标
             report_lines.append("### 2.1 趋势指标")
             report_lines.append("")
@@ -301,6 +306,70 @@ class ReportGenerator:
         report_lines.append("")
 
         return '\n'.join(report_lines)
+
+    @staticmethod
+    def _render_signal_score(detail: Dict[str, Any]) -> list:
+        """渲染因子化综合评分段落
+
+        展示每个因子的方向强度与实际权重，让评分可追溯——
+        读者能直接看出结论由哪个因子主导，以及哪些因子因数据缺失被剔除。
+        """
+        direction_text = {
+            'strong_bullish': '强烈看涨',
+            'bullish': '看涨',
+            'neutral': '中性',
+            'bearish': '看跌',
+            'strong_bearish': '强烈看跌',
+        }.get(detail.get('direction', 'neutral'), '中性')
+
+        score = detail.get('score', 0.0)
+        lines = [
+            "### 2.0 综合信号评分",
+            "",
+            f"**综合评分: {score:+.1f} / 100 — {direction_text}**",
+            "",
+            f"- 有效因子: {detail.get('valid_factors', 0)} / {detail.get('total_factors', 0)}"
+            f"（有效权重 {detail.get('effective_weight', 0):.2f}）",
+        ]
+
+        volatility = detail.get('volatility') or {}
+        if volatility.get('detail'):
+            lines.append(f"- 波动率闸门: {volatility['detail']}")
+
+        excluded = detail.get('excluded_factors') or []
+        if excluded:
+            lines.append(
+                f"- 已剔除因子: {', '.join(excluded)}"
+                "（权重已按剩余有效因子重新归一化，不做中性稀释）"
+            )
+
+        lines.extend([
+            "",
+            "| 因子 | 强度 | 权重 | 说明 |",
+            "|------|------|------|------|",
+        ])
+
+        label_map = {
+            'ma_alignment': '均线排列',
+            'macd': 'MACD',
+            'rsi': 'RSI',
+            'bollinger': '布林带',
+            'multi_period': '多周期共振',
+            'volume': '成交量',
+        }
+        for factor in detail.get('factors', []):
+            name = label_map.get(factor.get('name'), factor.get('name', ''))
+            if factor.get('valid'):
+                strength = f"{factor.get('score', 0.0):+.2f}"
+            else:
+                strength = "—"
+            lines.append(
+                f"| {name} | {strength} | {factor.get('weight', 0):.2f} | "
+                f"{factor.get('detail', '')} |"
+            )
+
+        lines.append("")
+        return lines
 
     def generate_cross_asset_report(self, result: Dict[str, Any]) -> str:
         """生成跨品种联动分析报告（Markdown）

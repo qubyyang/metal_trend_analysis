@@ -81,6 +81,24 @@ indicators:
     period: 20
     std_dev: 2
 
+# 因子化信号引擎
+# 把各技术因子转成 [-1,+1] 连续强度后加权聚合为 [-100,+100] 综合评分，
+# 取代旧的「信号计数投票」。因子数据缺失时会被剔除并重新归一化剩余权重，
+# 而不是当作中性票稀释信号。
+signal_engine:
+  weights:
+    ma_alignment: 0.25   # 均线多空排列与价格位置
+    macd: 0.20           # 金叉死叉 + 零轴位置
+    rsi: 0.15            # 摆动指标，超买看跌、超卖看涨（与趋势因子方向相反）
+    bollinger: 0.15      # %B 通道位置，趋势跟随语义
+    multi_period: 0.15   # 日线与周线是否共振
+    volume: 0.10         # 量能确认；现货金银 volume 恒为 0 时自动剔除
+  # 权重设为 0 即关闭该因子（不会出现在报告中）
+  atr_ratio_threshold: 0.03    # ATR/价格 超过此比例开始衰减评分
+  max_volatility_damping: 0.5  # 衰减系数下限
+  strong_threshold: 40         # |评分| >= 40 判定为强信号
+  weak_threshold: 15           # |评分| < 15 判定为中性
+
 # 支撑阻力位识别
 support_resistance:
   lookback: 100

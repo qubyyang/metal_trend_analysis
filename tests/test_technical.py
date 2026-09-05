@@ -132,6 +132,27 @@ class TestTrendAnalysis:
         result = analyzer.get_trend_analysis(analyzer.calculate_all_indicators(oscillating_df))
         assert result["bb_position"] in {"above_upper", "below_lower", "middle"}
 
+    def test_signal_score_fields_present(self, analyzer, uptrend_df):
+        """趋势判断已改由因子化引擎驱动，评分字段供报告与回测消费"""
+        result = analyzer.get_trend_analysis(analyzer.calculate_all_indicators(uptrend_df))
+
+        for field in ["signal_score", "signal_direction", "signal_confidence", "signal_detail"]:
+            assert field in result, f"缺少信号引擎字段: {field}"
+
+        assert -100.0 <= result["signal_score"] <= 100.0
+        assert result["signal_detail"]["available"] is True
+
+    def test_signal_score_sign_matches_trend(self, analyzer, uptrend_df, downtrend_df):
+        up = analyzer.get_trend_analysis(analyzer.calculate_all_indicators(uptrend_df))
+        down = analyzer.get_trend_analysis(analyzer.calculate_all_indicators(downtrend_df))
+        assert up["signal_score"] > 0 > down["signal_score"]
+
+    def test_atr_available_for_volatility_gate(self, analyzer, uptrend_df):
+        """波动率闸门依赖 ATR，calculate_all_indicators 必须产出该列"""
+        df = analyzer.calculate_all_indicators(uptrend_df)
+        assert "ATR" in df.columns
+        assert df["ATR"].notna().any()
+
 
 class TestSupportResistance:
     def test_levels_are_sane(self, analyzer, oscillating_df):

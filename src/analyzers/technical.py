@@ -9,6 +9,7 @@ from loguru import logger
 
 from ..utils.exceptions import AnalysisError, ValidationError
 from ..utils.common import validate_config, safe_execute
+from .signal_engine import SignalEngine
 
 
 class TechnicalAnalyzer:
@@ -35,6 +36,13 @@ class TechnicalAnalyzer:
         self.rsi_config = self._validate_rsi_config(config.get('rsi', {}))
         self.bollinger_config = self._validate_bollinger_config(config.get('bollinger', {}))
         self.sr_config = self._validate_sr_config(config.get('support_resistance', {}))
+
+        # 因子化信号引擎：把离散信号聚合为 [-100, +100] 的连续评分
+        signal_config = dict(config.get('signal_engine', {}) or {})
+        # RSI 阈值与技术指标配置保持一致，避免两套阈值各说各话
+        signal_config.setdefault('rsi_overbought', self.rsi_config.get('overbought', 70))
+        signal_config.setdefault('rsi_oversold', self.rsi_config.get('oversold', 30))
+        self.signal_engine = SignalEngine(signal_config)
 
         self.logger.info("Technical analyzer initialized with validated parameters")
 
@@ -154,6 +162,16 @@ class TechnicalAnalyzer:
                 result_df['BB_UPPER'] = bb_data.get('upper')
                 result_df['BB_MIDDLE'] = bb_data.get('middle')
                 result_df['BB_LOWER'] = bb_data.get('lower')
+
+            # 计算 ATR（波动率，供信号引擎做波动过滤与止损参考）
+            atr_values = safe_execute(
+                lambda: self.calculate_atr(result_df),
+                default_value=None,
+                logger_name="calculate_atr"
+            )
+
+            if atr_values is not None:
+                result_df['ATR'] = atr_values
 
             # 计算成交量移动平均
             if 'volume' in result_df.columns:
@@ -411,19 +429,38 @@ class TechnicalAnalyzer:
             # RSI信号
             rsi_signal = self._analyze_rsi_signal(latest)
 
-            # 综合趋势判断
+            # 综合趋势判断：由因子化信号引擎给出连续评分
+            # 旧实现用 trend_signals.count('bullish') > count('bearish') 投票，
+            # 丢失强度信息、无法加权，且会把缺失数据当作中性票稀释信号。
+            signal_result = self.signal_engine.evaluate(df)
+
+            if signal_result.get('available'):
+                direction = signal_result.get('direction', 'neutral')
+                # 向下兼容：通知渠道与报告只识别 bullish/bearish/neutral
+                overall_trend = (
+                    'bullish' if direction.endswith('bullish')
+                    else ('bearish' if direction.endswith('bearish') else 'neutral')
+                )
+            else:
+                # 引擎无可用因子时退回计数法，保证流程不中断
+                bullish_signals = trend_signals.count('bullish')
+                bearish_signals = trend_signals.count('bearish')
+                if bullish_signals > bearish_signals:
+                    overall_trend = 'bullish'
+                elif bearish_signals > bullish_signals:
+                    overall_trend = 'bearish'
+                else:
+                    overall_trend = 'neutral'
+
             bullish_signals = trend_signals.count('bullish')
             bearish_signals = trend_signals.count('bearish')
 
-            if bullish_signals > bearish_signals:
-                overall_trend = 'bullish'
-            elif bearish_signals > bullish_signals:
-                overall_trend = 'bearish'
-            else:
-                overall_trend = 'neutral'
-
             return {
                 'trend': overall_trend,
+                'signal_score': signal_result.get('score', 0.0),
+                'signal_direction': signal_result.get('direction', 'neutral'),
+                'signal_confidence': signal_result.get('confidence', 1.0),
+                'signal_detail': signal_result,
                 'ma_trend': self._collect_ma_values(latest),
                 'ma_signal': ma_trend,
                 'ma_alignment': self._check_ma_alignment(latest),

@@ -24,6 +24,7 @@
 
 - **🤖 AI-Driven Analysis**: Integrates GPT-4 and other large language models to generate professional market analysis and natural language reports
 - **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, ATR, and more
+- **🧮 Factor-Based Signal Scoring**: Six weighted factors aggregate into a continuous -100~+100 score, replacing signal-count voting; invalid factors release their weight, and an ATR volatility gate modulates confidence
 - **📡 Multi-Source Market Data**: Sina Finance as primary with Sina Forex / Stooq / Yahoo Finance failover, plus local cache fallback for resilience
 - **🔗 Cross-Asset Analysis**: Gold/silver, gold/platinum and gold/copper ratios plus rolling correlations against the Dollar Index and crude oil, with 2σ divergence alerts
 - **📈 Technical Chart Generation**: Renders candlestick + MA + Bollinger Bands + support/resistance + MACD + RSI composite charts
@@ -201,6 +202,51 @@ Only instruments with actively updating data are included:
 | `DXY` | US Dollar Index | Pricing-currency reference |
 
 Deliberately excluded as confirmed stale: `PL`, `PA`, `DX` — all frozen since 2019.
+
+## 🧮 Factor-Based Signal Scoring
+
+Trend determination no longer relies on a naive "count bullish vs. count bearish" vote.
+Six technical factors are converted into **continuous strengths in [-1, +1]** and
+aggregated by weight into a **composite score in [-100, +100]**.
+
+| Factor | Default Weight | Directional Semantics |
+|--------|---------------|----------------------|
+| `ma_alignment` | 0.25 | Trend-following: bullish alignment is positive |
+| `macd` | 0.20 | Trend-following: golden cross above zero axis is positive |
+| `rsi` | 0.15 | **Reversal**: overbought is negative, oversold is positive |
+| `bollinger` | 0.15 | Trend-following: higher %B is more positive |
+| `multi_period` | 0.15 | Daily/weekly resonance scores full; on divergence the weekly direction wins at half strength |
+| `volume` | 0.10 | Expansion confirms the price direction |
+
+Score ≥ +40 is strong bullish, +15 to +40 bullish, -15 to +15 neutral, and so on
+(thresholds are configurable).
+
+Three design decisions worth calling out:
+
+1. **Invalid factors release their weight rather than diluting toward neutral.**
+   Sina Finance's spot gold/silver endpoints return `volume` as a constant 0 (spot
+   metals have no centralized exchange, hence no unified volume convention). Treating
+   that as "persistent contraction" would turn the factor into a noise source that
+   steadily emits negative scores and systematically suppresses every bullish signal.
+   The engine marks the factor invalid and uses **only valid-factor weights as the
+   denominator** of the weighted average. In a live gold run the effective weight was
+   0.90 rather than 1.00, and the score was unaffected by the gap.
+2. **RSI and Bollinger point in opposite directions on purpose.** The former is an
+   oscillator (overbought → bearish); the latter is treated as trend-following (riding
+   the upper band → strong). In one-sided markets they partially cancel — that is the
+   intent. No single factor should dictate the call at extremes.
+3. **ATR is a volatility gate, not a directional factor.** When `ATR/close` exceeds the
+   threshold (3% by default), the composite score is damped linearly (down to 50%).
+   This lowers confidence without changing direction: the higher the volatility, the
+   more easily the same technical setup is overturned by noise.
+
+Reports include a full factor breakdown (strength / weight / rationale), making every
+conclusion traceable. Weights and thresholds live under the `signal_engine` section of
+`config.yaml`; setting a factor's weight to `0` disables it entirely.
+
+Score and confidence are persisted alongside each backtest record (`signal_score` /
+`signal_confidence`), enabling later win-rate stratification by "strong vs. weak signal"
+to verify the score actually discriminates.
 
 ## 🔗 Cross-Asset Analysis
 

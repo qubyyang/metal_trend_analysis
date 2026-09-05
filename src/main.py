@@ -68,7 +68,10 @@ def initialize_analyzers(config: Dict[str, Any], logger) -> Tuple[Dict[str, Any]
         logger.info("Market data client initialized successfully")
 
         # Technical analyzer
-        indicators_config = config.get('indicators', {})
+        indicators_config = dict(config.get('indicators', {}) or {})
+        # signal_engine 允许写在顶级或 indicators 下，顶级优先（配置更直观）
+        if config.get('signal_engine'):
+            indicators_config['signal_engine'] = config['signal_engine']
         analyzers['technical_analyzer'] = TechnicalAnalyzer(indicators_config)
         logger.info("Technical analyzer initialized successfully")
 
@@ -359,6 +362,15 @@ def analyze_instrument(
         }
 
         logger.info(f"Technical trend: {trend_analysis.get('trend', 'N/A')}")
+        if trend_analysis.get('signal_detail', {}).get('available'):
+            logger.info(
+                f"Signal score: {trend_analysis.get('signal_score'):+.1f}/100 "
+                f"({trend_analysis.get('signal_direction')}, "
+                f"confidence {trend_analysis.get('signal_confidence'):.0%})"
+            )
+            excluded = trend_analysis['signal_detail'].get('excluded_factors') or []
+            if excluded:
+                logger.info(f"Excluded factors (weight redistributed): {', '.join(excluded)}")
         logger.info(f"Support levels: {[f'${s:.2f}' for s in support_levels[:2]]}")
         logger.info(f"Resistance levels: {[f'${r:.2f}' for r in resistance_levels[:2]]}")
 

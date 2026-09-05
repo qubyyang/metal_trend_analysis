@@ -90,6 +90,11 @@ class SignalTracker:
             "created_at": datetime.now().isoformat(),
             "entry_price": float(price),
             "technical_direction": normalize_direction(technical_data.get("trend")),
+            # 因子化引擎的连续评分与置信度。留存原始值是为了后续能按
+            # 「强信号 vs 弱信号」分层统计胜率，验证评分是否真的有区分度。
+            "signal_score": technical_data.get("signal_score"),
+            "signal_direction": technical_data.get("signal_direction"),
+            "signal_confidence": technical_data.get("signal_confidence"),
             "llm_direction": normalize_direction(llm_direction) if llm_direction else None,
             "macd_signal": technical_data.get("macd_signal"),
             "rsi": technical_data.get("rsi"),

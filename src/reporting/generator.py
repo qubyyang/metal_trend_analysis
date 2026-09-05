@@ -65,13 +65,31 @@ class ReportGenerator:
         report_lines.append("")
 
         if quote_data:
+            def _fmt(key: str, digits: int = 2) -> str:
+                """格式化数值，缺失或非数值时返回 N/A"""
+                value = quote_data.get(key)
+                if value is None:
+                    return 'N/A'
+                try:
+                    return f"{float(value):,.{digits}f}"
+                except (TypeError, ValueError):
+                    return 'N/A'
+
+            change = quote_data.get('change')
+            # 涨跌前置符号，便于快速识别方向
+            sign = '+' if isinstance(change, (int, float)) and change > 0 else ''
+
             report_lines.append("### 1.1 实时报价")
             report_lines.append("")
-            report_lines.append(f"- 最新价格: ${quote_data.get('price', 'N/A')}")
-            report_lines.append(f"- 日涨跌: {quote_data.get('change', 'N/A')} ({quote_data.get('change_percent', 'N/A')}%)")
-            report_lines.append(f"- 最高价: ${quote_data.get('high', 'N/A')}")
-            report_lines.append(f"- 最低价: ${quote_data.get('low', 'N/A')}")
-            report_lines.append(f"- 开盘价: ${quote_data.get('open', 'N/A')}")
+            report_lines.append(f"- 最新价格: ${_fmt('price')}")
+            report_lines.append(
+                f"- 日涨跌: {sign}{_fmt('change')} ({sign}{_fmt('change_percent')}%)"
+            )
+            report_lines.append(f"- 最高价: ${_fmt('high')}")
+            report_lines.append(f"- 最低价: ${_fmt('low')}")
+            report_lines.append(f"- 开盘价: ${_fmt('open')}")
+            if quote_data.get('source'):
+                report_lines.append(f"- 数据来源: {quote_data['source']}")
             report_lines.append("")
 
         # 二、技术面分析

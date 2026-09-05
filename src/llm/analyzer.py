@@ -253,6 +253,28 @@ class LLMAnalyzer:
             self.logger.error(f"Error building prompt: {e}")
             return f"请分析 {symbol} 的市场情况，包括趋势判断、技术分析和操作建议。"
 
+    def _try_parse_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        尝试从 LLM 输出中提取 JSON 对象
+
+        Args:
+            text: LLM 返回的原始文本
+
+        Returns:
+            解析成功返回字典，否则返回 None
+        """
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start < 0 or end <= start:
+            return None
+
+        try:
+            data = json.loads(text[start:end])
+        except json.JSONDecodeError:
+            return None
+
+        return data if isinstance(data, dict) and data else None
+
     def _parse_analysis(self, analysis_text: str) -> Dict[str, Any]:
         """
         解析LLM分析结果
@@ -267,7 +289,16 @@ class LLMAnalyzer:
             if not analysis_text or not isinstance(analysis_text, str):
                 raise ValueError("Analysis text is empty or invalid")
 
-            # 尝试提取结构化信息
+            # 优先尝试解析 JSON（部分提示词要求模型返回 JSON）
+            json_data = self._try_parse_json(analysis_text)
+            if json_data:
+                return {
+                    'analysis': json_data,
+                    'raw_text': analysis_text[:1000],
+                    'error': None
+                }
+
+            # 回退：从自由文本中正则抽取结构化信息
             analysis_data = {
                 'trend': self._extract_trend(analysis_text),
                 'summary': self._extract_summary(analysis_text),
@@ -596,43 +627,6 @@ class LLMAnalyzer:
 
         return prompt
 
-    def _parse_analysis(self, analysis_text: str) -> Dict[str, Any]:
-        """
-        解析 LLM 分析结果
-
-        Args:
-            analysis_text: LLM 返回的文本
-
-        Returns:
-            解析后的结果
-        """
-        try:
-            # 尝试提取 JSON
-            # 查找 JSON 内容
-            json_start = analysis_text.find('{')
-            json_end = analysis_text.rfind('}') + 1
-
-            if json_start >= 0 and json_end > json_start:
-                json_str = analysis_text[json_start:json_end]
-                result = json.loads(json_str)
-
-                return {
-                    'analysis': result,
-                    'raw_text': analysis_text
-                }
-            else:
-                # 如果无法提取 JSON，返回原始文本
-                return {
-                    'analysis': None,
-                    'raw_text': analysis_text
-                }
-
-        except json.JSONDecodeError:
-            # JSON 解析失败，返回原始文本
-            return {
-                'analysis': None,
-                'raw_text': analysis_text
-            }
 
     def generate_report_summary(
         self,

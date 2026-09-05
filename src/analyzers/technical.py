@@ -424,10 +424,13 @@ class TechnicalAnalyzer:
 
             return {
                 'trend': overall_trend,
-                'ma_trend': ma_trend,
+                'ma_trend': self._collect_ma_values(latest),
+                'ma_signal': ma_trend,
+                'ma_alignment': self._check_ma_alignment(latest),
                 'macd_signal': macd_signal,
                 'rsi': latest.get('RSI'),
                 'rsi_signal': rsi_signal,
+                'bb_position': self._analyze_bb_position(latest),
                 'signals_count': {
                     'bullish': bullish_signals,
                     'bearish': bearish_signals,
@@ -441,6 +444,46 @@ class TechnicalAnalyzer:
                 'trend': 'neutral',
                 'error': str(e)
             }
+
+    def _collect_ma_values(self, latest_data: pd.Series) -> Dict[str, float]:
+        """收集最新一根K线上的各周期均线数值"""
+        ma_values: Dict[str, float] = {}
+        for period in self.ma_config.get('periods', []):
+            key = f'MA{period}'
+            value = latest_data.get(key)
+            if value is not None and not pd.isna(value):
+                ma_values[key] = float(value)
+        return ma_values
+
+    def _check_ma_alignment(self, latest_data: pd.Series) -> bool:
+        """判断均线是否多头排列（短周期均线全部高于长周期均线）"""
+        periods = sorted(self.ma_config.get('periods', []))
+        values = []
+        for period in periods:
+            value = latest_data.get(f'MA{period}')
+            if value is None or pd.isna(value):
+                return False
+            values.append(float(value))
+
+        if len(values) < 2:
+            return False
+
+        return all(values[i] > values[i + 1] for i in range(len(values) - 1))
+
+    def _analyze_bb_position(self, latest_data: pd.Series) -> str:
+        """判断收盘价相对布林带的位置"""
+        close = latest_data.get('close')
+        upper = latest_data.get('BB_UPPER')
+        lower = latest_data.get('BB_LOWER')
+
+        if any(v is None or pd.isna(v) for v in (close, upper, lower)):
+            return 'middle'
+
+        if close > upper:
+            return 'above_upper'
+        if close < lower:
+            return 'below_lower'
+        return 'middle'
 
     def _analyze_ma_trend(self, df: pd.DataFrame) -> Optional[str]:
         """分析移动平均线趋势"""
@@ -554,10 +597,18 @@ class TechnicalAnalyzer:
             highs, lows = self._find_swing_points(recent_data)
 
             # 聚类相近的点位
-            support_levels = self._cluster_levels(lows, recent_data['low'].median())
-            resistance_levels = self._cluster_levels(highs, recent_data['high'].median())
+            support_candidates = self._cluster_levels(lows, recent_data['low'].median())
+            resistance_candidates = self._cluster_levels(highs, recent_data['high'].median())
 
-            # 按重要性排序
+            # 按当前价重新归类：支撑必须位于价格下方，阻力必须位于价格上方。
+            # 已跌破的支撑会转化为上方阻力，已突破的阻力会转化为下方支撑（角色互换原理）。
+            current_price = float(df['close'].iloc[-1])
+            all_levels = support_candidates + resistance_candidates
+
+            support_levels = [lv for lv in all_levels if lv < current_price]
+            resistance_levels = [lv for lv in all_levels if lv > current_price]
+
+            # 就近排序：第一支撑为最接近现价的下方点位，第一阻力为最接近现价的上方点位
             support_levels = sorted(support_levels, reverse=True)[:5]
             resistance_levels = sorted(resistance_levels)[:5]
 
@@ -610,79 +661,6 @@ class TechnicalAnalyzer:
 
         return clustered
 
-        # 计算 EMA
-        ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
-        ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
-
-        # 计算 DIF
-        dif = ema_fast - ema_slow
-
-        # 计算 DEA (信号线)
-        dea = dif.ewm(span=signal, adjust=False).mean()
-
-        # 计算柱状图
-        hist = (dif - dea) * 2
-
-        return {
-            'dif': dif,
-            'dea': dea,
-            'hist': hist
-        }
-
-    def calculate_rsi(self, df: pd.DataFrame) -> pd.Series:
-        """
-        计算 RSI 指标
-
-        Args:
-            df: K 线数据 DataFrame
-
-        Returns:
-            RSI 值 Series
-        """
-        period = self.rsi_config.get('period', 14)
-
-        # 计算价格变化
-        delta = df['close'].diff()
-
-        # 分离涨跌
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        # 计算 RSI
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-
-        return rsi
-
-    def calculate_bollinger(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        计算布林带
-
-        Args:
-            df: K 线数据 DataFrame
-
-        Returns:
-            布林带数据字典
-        """
-        period = self.bollinger_config.get('period', 20)
-        std_dev = self.bollinger_config.get('std_dev', 2)
-
-        # 中轨（移动平均）
-        middle = df['close'].rolling(window=period).mean()
-
-        # 标准差
-        std = df['close'].rolling(window=period).std()
-
-        # 上轨和下轨
-        upper = middle + (std * std_dev)
-        lower = middle - (std * std_dev)
-
-        return {
-            'upper': upper,
-            'middle': middle,
-            'lower': lower
-        }
-
     def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
         """
         计算平均真实波幅 (ATR)
@@ -692,172 +670,28 @@ class TechnicalAnalyzer:
             period: 计算周期
 
         Returns:
-            ATR 值 Series
+            ATR 数值序列
+
+        Raises:
+            AnalysisError: 计算失败时抛出
         """
-        high = df['high']
-        low = df['low']
-        close = df['close']
+        try:
+            if len(df) < 2:
+                self.logger.warning("Insufficient data for ATR calculation")
+                return pd.Series(index=df.index, dtype=float)
 
-        # 计算真实波幅
-        tr1 = high - low
-        tr2 = (high - close.shift()).abs()
-        tr3 = (low - close.shift()).abs()
+            high, low, close = df['high'], df['low'], df['close']
 
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            tr = pd.concat([
+                high - low,
+                (high - close.shift()).abs(),
+                (low - close.shift()).abs(),
+            ], axis=1).max(axis=1)
 
-        # 计算 ATR
-        atr = tr.rolling(window=period).mean()
+            return tr.rolling(window=period, min_periods=1).mean()
 
-        return atr
-
-    def identify_support_resistance(self, df: pd.DataFrame) -> Tuple[List[float], List[float]]:
-        """
-        识别支撑位和阻力位
-
-        Args:
-            df: K 线数据 DataFrame
-
-        Returns:
-            (支撑位列表, 阻力位列表)
-        """
-        lookback = self.sr_config.get('lookback', 100)
-        swing_points = self.sr_config.get('swing_points', 3)
-        proximity = self.sr_config.get('proximity', 0.01)
-
-        # 获取最近的数据
-        recent_df = df.tail(lookback)
-
-        # 寻找局部高点和低点
-        highs = []
-        lows = []
-
-        for i in range(swing_points, len(recent_df) - swing_points):
-            # 局部高点
-            is_high = all(
-                recent_df.iloc[i]['high'] >= recent_df.iloc[j]['high']
-                for j in range(i - swing_points, i + swing_points + 1)
-                if j != i
-            )
-
-            # 局部低点
-            is_low = all(
-                recent_df.iloc[i]['low'] <= recent_df.iloc[j]['low']
-                for j in range(i - swing_points, i + swing_points + 1)
-                if j != i
-            )
-
-            if is_high:
-                highs.append(recent_df.iloc[i]['high'])
-            if is_low:
-                lows.append(recent_df.iloc[i]['low'])
-
-        # 合并相近的价格点
-        def merge_levels(levels: List[float], proximity: float) -> List[float]:
-            if not levels:
-                return []
-
-            levels.sort(reverse=True)
-            merged = [levels[0]]
-
-            for level in levels[1:]:
-                # 检查是否与已存在的点位相近
-                is_close = any(
-                    abs(level - existing) / existing < proximity
-                    for existing in merged
-                )
-
-                if not is_close:
-                    merged.append(level)
-
-            return merged
-
-        support_levels = merge_levels(lows, proximity)
-        resistance_levels = merge_levels(highs, proximity)
-
-        return support_levels, resistance_levels
-
-    def get_trend_analysis(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        获取趋势分析结果
-
-        Args:
-            df: 包含技术指标的 DataFrame
-
-        Returns:
-            趋势分析字典
-        """
-        if len(df) < 20:
-            return {'error': '数据不足'}
-
-        # 获取最新数据
-        latest = df.iloc[-1]
-        prev = df.iloc[-2]
-
-        # MA 趋势分析
-        ma_periods = self.ma_config.get('periods', [5, 10, 20, 60])
-        ma_trend = {}
-        ma_alignment = True  # 是否多头排列
-
-        for period in ma_periods:
-            ma_key = f'MA{period}'
-            if ma_key in df.columns:
-                ma_trend[ma_key] = latest[ma_key]
-                # 检查多头排列：短期 > 长期
-                if period < ma_periods[-1]:
-                    next_ma_key = f'MA{ma_periods[ma_periods.index(period) + 1]}'
-                    if next_ma_key in df.columns:
-                        if latest[ma_key] < latest[next_ma_key]:
-                            ma_alignment = False
-
-        # MACD 信号
-        macd_signal = 'neutral'
-        if 'MACD_DIF' in df.columns and 'MACD_DEA' in df.columns:
-            if latest['MACD_DIF'] > latest['MACD_DEA'] and prev['MACD_DIF'] <= prev['MACD_DEA']:
-                macd_signal = 'golden_cross'  # 金叉
-            elif latest['MACD_DIF'] < latest['MACD_DEA'] and prev['MACD_DIF'] >= prev['MACD_DEA']:
-                macd_signal = 'death_cross'  # 死叉
-            elif latest['MACD_DIF'] > latest['MACD_DEA']:
-                macd_signal = 'bullish'  # 多头
-            else:
-                macd_signal = 'bearish'  # 空头
-
-        # RSI 信号
-        rsi_signal = 'neutral'
-        if 'RSI' in df.columns:
-            rsi_value = latest['RSI']
-            overbought = self.rsi_config.get('overbought', 70)
-            oversold = self.rsi_config.get('oversold', 30)
-
-            if rsi_value > overbought:
-                rsi_signal = 'overbought'
-            elif rsi_value < oversold:
-                rsi_signal = 'oversold'
-            else:
-                rsi_signal = 'normal'
-
-        # 布林带位置
-        bb_position = 'middle'
-        if all(col in df.columns for col in ['BB_UPPER', 'BB_MIDDLE', 'BB_LOWER']):
-            if latest['close'] > latest['BB_UPPER']:
-                bb_position = 'above_upper'
-            elif latest['close'] < latest['BB_LOWER']:
-                bb_position = 'below_lower'
-
-        # 综合趋势判断
-        trend = 'neutral'
-        if ma_alignment and macd_signal in ['golden_cross', 'bullish']:
-            trend = 'bullish'
-        elif not ma_alignment and macd_signal in ['death_cross', 'bearish']:
-            trend = 'bearish'
-
-        return {
-            'ma_trend': ma_trend,
-            'ma_alignment': ma_alignment,
-            'macd_signal': macd_signal,
-            'rsi_signal': rsi_signal,
-            'bb_position': bb_position,
-            'trend': trend
-        }
+        except Exception as e:
+            raise AnalysisError(f"Failed to calculate ATR: {e}")
 
     def save_indicators(self, df: pd.DataFrame, symbol: str, timeframe: str):
         """

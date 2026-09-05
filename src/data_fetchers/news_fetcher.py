@@ -264,6 +264,10 @@ class NewsFetcher:
 
             if source_type == 'rss':
                 articles = self._fetch_rss_feed(url)
+            elif source_type == 'api':
+                articles = self._fetch_api(source)
+            elif source_type == 'html':
+                articles = self._fetch_html(source)
             else:
                 self.logger.warning(f"Unsupported source type: {source_type}")
 
@@ -304,6 +308,9 @@ class NewsFetcher:
         all_articles = []
 
         for source in self.sources:
+            if not source.get('enabled', True):
+                continue
+
             try:
                 source_name = source.get('name', 'unknown')
                 self.logger.debug(f"Fetching news from: {source_name}")
@@ -525,58 +532,6 @@ class NewsFetcher:
 
         return articles[:self.max_articles]
 
-    def fetch_all_news(self, use_cache: bool = True) -> List[Dict[str, Any]]:
-        """
-        从所有启用的新闻源抓取新闻
-
-        Args:
-            use_cache: 是否使用缓存
-
-        Returns:
-            所有新闻列表
-        """
-        if not self.enabled:
-            return []
-
-        cache_key = 'all_news'
-
-        # 检查缓存
-        if use_cache and self._is_cache_valid(cache_key):
-            return self.cache[cache_key]['articles']
-
-        all_articles = []
-
-        for source in self.sources:
-            if not source.get('enabled', True):
-                continue
-
-            # 根据类型选择抓取方法
-            if source['type'] == 'rss':
-                articles = self._fetch_rss(source)
-            elif source['type'] == 'api':
-                articles = self._fetch_api(source)
-            elif source['type'] == 'html':
-                articles = self._fetch_html(source)
-            else:
-                print(f"未知的新闻源类型: {source['type']}")
-                continue
-
-            all_articles.extend(articles)
-
-            # 请求延迟
-            time.sleep(self.fetch_config['delay'])
-
-        # 按发布时间排序
-        all_articles.sort(key=lambda x: x['published'], reverse=True)
-
-        # 更新缓存
-        self.cache[cache_key] = {
-            'timestamp': datetime.now().isoformat(),
-            'articles': all_articles
-        }
-        self._save_cache()
-
-        return all_articles[:self.max_articles]
 
     def get_news_summary(self, articles: List[Dict[str, Any]], max_chars: int = 500) -> str:
         """
@@ -595,8 +550,8 @@ class NewsFetcher:
         summary_lines = []
 
         for i, article in enumerate(articles[:5], 1):  # 最多 5 条
-            title = article['title']
-            source = article['source']
+            title = article.get('title', '(无标题)')
+            source = article.get('source', '未知来源')
             summary_lines.append(f"{i}. [{source}] {title}")
 
         summary = '\n'.join(summary_lines)

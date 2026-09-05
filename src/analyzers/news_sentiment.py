@@ -292,15 +292,19 @@ class NewsSentimentAnalyzer:
         if top_bullish:
             summary += "\n**最积极文章**:\n"
             for i, item in enumerate(top_bullish[:2], 1):  # 最多2篇
-                article = item['article']
-                summary += f"{i}. [{article['source']}] {article['title']}\n"
+                article = item.get('article', {})
+                source = article.get('source', '未知来源')
+                title = article.get('title', '(无标题)')
+                summary += f"{i}. [{source}] {title}\n"
 
         top_bearish = sentiment_result.get('top_bearish_articles', [])
         if top_bearish:
             summary += "\n**最消极文章**:\n"
             for i, item in enumerate(top_bearish[:2], 1):  # 最多2篇
-                article = item['article']
-                summary += f"{i}. [{article['source']}] {article['title']}\n"
+                article = item.get('article', {})
+                source = article.get('source', '未知来源')
+                title = article.get('title', '(无标题)')
+                summary += f"{i}. [{source}] {title}\n"
 
         return summary.strip()
 

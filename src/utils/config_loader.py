@@ -106,7 +106,10 @@ class ConfigLoader:
             match = re.match(r'\$\{([^}]+)\}', config)
             if match:
                 var_name = match.group(1)
-                return os.getenv(var_name, config)
+                # 环境变量未设置时返回空串，而非保留 ${VAR} 字面量。
+                # 保留占位符会让下游把"未配置"误判为"已配置"，
+                # 进而用非法值去初始化通知渠道 / LLM 客户端并抛错。
+                return os.getenv(var_name, '')
             return config
         else:
             return config

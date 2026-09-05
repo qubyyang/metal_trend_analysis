@@ -1,8 +1,14 @@
 """
 Stooq data client (free, daily data)
+
+.. deprecated::
+    本模块已由 ``StooqProvider`` + ``MarketDataClient`` 取代，后者支持
+    多数据源自动降级与缓存兜底。保留一个版本周期以兼容外部引用，
+    新代码请使用 ``src.data_fetchers.market_data.MarketDataClient``。
 """
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from io import StringIO
 from pathlib import Path

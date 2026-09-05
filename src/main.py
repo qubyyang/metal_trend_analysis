@@ -13,13 +13,15 @@ sys.path.insert(0, str(project_root))
 
 from src.utils.config_loader import ConfigLoader
 from src.utils.logger import setup_logger, get_logger
-from src.data_fetchers.stooq_client import StooqClient
+from src.data_fetchers.market_data import MarketDataClient
 from src.data_fetchers.news_fetcher import NewsFetcher
 from src.analyzers.technical import TechnicalAnalyzer
 from src.analyzers.patterns import PatternRecognizer
 from src.analyzers.news_sentiment import NewsSentimentAnalyzer
+from src.analyzers.signal_tracker import SignalTracker
 from src.llm.analyzer import LLMAnalyzer
 from src.reporting.generator import ReportGenerator
+from src.reporting.chart import ChartGenerator
 from src.notification.feishu import FeishuNotifier
 from src.notification.dingtalk import DingTalkNotifier
 from src.notification.slack import SlackNotifier
@@ -39,6 +41,10 @@ def parse_arguments() -> argparse.Namespace:
                         help='Timeframe (1d/1w/1m - Stooq daily data)')
     parser.add_argument('--debug', action='store_true',
                         help='Debug mode')
+    parser.add_argument('--no-chart', action='store_true',
+                        help='Disable chart generation')
+    parser.add_argument('--backtest', action='store_true',
+                        help='Only evaluate historical signal accuracy, skip analysis')
     return parser.parse_args()
 
 
@@ -52,10 +58,11 @@ def initialize_analyzers(config: Dict[str, Any], logger) -> Tuple[Dict[str, Any]
     analyzers = {}
 
     try:
-        # Stooq client
-        stooq_config = config.get('api', {}).get('stooq', {})
-        analyzers['stooq_client'] = StooqClient(stooq_config)
-        logger.info("Stooq client initialized successfully")
+        # Market data client (multi-source with automatic failover)
+        market_config = config.get('api', {}).get('stooq', {}).copy()
+        market_config.update(config.get('market_data', {}))
+        analyzers['market_client'] = MarketDataClient(market_config)
+        logger.info("Market data client initialized successfully")
 
         # Technical analyzer
         indicators_config = config.get('indicators', {})
@@ -66,15 +73,32 @@ def initialize_analyzers(config: Dict[str, Any], logger) -> Tuple[Dict[str, Any]
         analyzers['pattern_recognizer'] = PatternRecognizer()
         logger.info("Pattern recognizer initialized successfully")
 
-        # LLM analyzer
+        # LLM analyzer (optional: technical analysis remains usable without it)
         llm_config = config.get('llm', {})
-        analyzers['llm_analyzer'] = LLMAnalyzer(llm_config)
-        logger.info("LLM analyzer initialized successfully")
+        try:
+            analyzers['llm_analyzer'] = LLMAnalyzer(llm_config)
+            logger.info("LLM analyzer initialized successfully")
+        except Exception as e:
+            analyzers['llm_analyzer'] = None
+            logger.warning(
+                f"LLM analyzer unavailable, falling back to technical-only analysis: {e}"
+            )
 
         # Report generator
         reports_config = config.get('reports', {})
         analyzers['report_generator'] = ReportGenerator(reports_config)
         logger.info("Report generator initialized successfully")
+
+        # Chart generator (optional, degrades gracefully without matplotlib)
+        analyzers['chart_generator'] = ChartGenerator(reports_config)
+        if analyzers['chart_generator'].available:
+            logger.info("Chart generator initialized successfully")
+        else:
+            logger.warning("matplotlib not installed, charts disabled")
+
+        # Signal tracker for accuracy backtesting
+        analyzers['signal_tracker'] = SignalTracker(config.get('backtest', {}))
+        logger.info("Signal tracker initialized successfully")
 
         return analyzers, True
 
@@ -132,6 +156,20 @@ def initialize_news_modules(config: Dict[str, Any], logger) -> Tuple[Optional[An
         return None, None, []
 
 
+def _safe_init_notifier(notifiers: Dict[str, Any], name: str, factory, logger) -> None:
+    """
+    Safely construct a notifier; misconfiguration disables only that channel.
+
+    Notification is an auxiliary capability — an invalid webhook or credential
+    must never abort the analysis pipeline.
+    """
+    try:
+        notifiers[name] = factory()
+        logger.info(f"{name} notifier initialized successfully")
+    except Exception as e:
+        logger.warning(f"{name} notifier misconfigured, channel disabled: {e}")
+
+
 def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     """
     Initialize all notification services.
@@ -146,11 +184,10 @@ def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     feishu_config = notification_config.get('feishu', {})
     feishu_webhook = feishu_config.get('webhook_url', '')
     if feishu_webhook:
-        notifiers['Feishu'] = FeishuNotifier(
+        _safe_init_notifier(notifiers, 'Feishu', lambda: FeishuNotifier(
             webhook_url=feishu_webhook,
             timeout=feishu_config.get('timeout', 30)
-        )
-        logger.info("Feishu notifier initialized successfully")
+        ), logger)
     else:
         logger.info("Feishu webhook URL not configured, Feishu notifications disabled")
 
@@ -158,11 +195,10 @@ def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     dingtalk_config = notification_config.get('dingtalk', {})
     dingtalk_webhook = dingtalk_config.get('webhook_url', '')
     if dingtalk_webhook:
-        notifiers['DingTalk'] = DingTalkNotifier(
+        _safe_init_notifier(notifiers, 'DingTalk', lambda: DingTalkNotifier(
             webhook_url=dingtalk_webhook,
             timeout=dingtalk_config.get('timeout', 30)
-        )
-        logger.info("DingTalk notifier initialized successfully")
+        ), logger)
     else:
         logger.info("DingTalk webhook URL not configured, DingTalk notifications disabled")
 
@@ -170,11 +206,10 @@ def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     slack_config = notification_config.get('slack', {})
     slack_webhook = slack_config.get('webhook_url', '')
     if slack_webhook:
-        notifiers['Slack'] = SlackNotifier(
+        _safe_init_notifier(notifiers, 'Slack', lambda: SlackNotifier(
             webhook_url=slack_webhook,
             timeout=slack_config.get('timeout', 30)
-        )
-        logger.info("Slack notifier initialized successfully")
+        ), logger)
     else:
         logger.info("Slack webhook URL not configured, Slack notifications disabled")
 
@@ -183,12 +218,11 @@ def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     telegram_bot_token = telegram_config.get('bot_token', '')
     telegram_chat_id = telegram_config.get('chat_id', '')
     if telegram_bot_token and telegram_chat_id:
-        notifiers['Telegram'] = TelegramNotifier(
+        _safe_init_notifier(notifiers, 'Telegram', lambda: TelegramNotifier(
             bot_token=telegram_bot_token,
             chat_id=telegram_chat_id,
             timeout=telegram_config.get('timeout', 30)
-        )
-        logger.info("Telegram notifier initialized successfully")
+        ), logger)
     else:
         logger.info("Telegram bot token or chat ID not configured, Telegram notifications disabled")
 
@@ -198,15 +232,14 @@ def initialize_notifiers(config: Dict[str, Any], logger) -> Dict[str, Any]:
     email_password = email_config.get('password', '')
     email_to = email_config.get('to', '')
     if email_from and email_password and email_to:
-        notifiers['Email'] = EmailNotifier(
+        _safe_init_notifier(notifiers, 'Email', lambda: EmailNotifier(
             from_email=email_from,
             password=email_password,
             to_email=email_to,
             smtp_server=email_config.get('smtp_server'),
             smtp_port=email_config.get('smtp_port'),
             timeout=email_config.get('timeout', 30)
-        )
-        logger.info("Email notifier initialized successfully")
+        ), logger)
     else:
         logger.info("Email configuration not complete, Email notifications disabled")
 
@@ -246,7 +279,8 @@ def analyze_instrument(
     news_articles: List[Dict[str, Any]],
     timeframe: str,
     logger,
-    debug: bool = False
+    debug: bool = False,
+    enable_chart: bool = True
 ) -> Optional[Dict[str, Any]]:
     """
     Analyze a single instrument.
@@ -261,22 +295,23 @@ def analyze_instrument(
     symbol = instrument_config.get('symbol')
     symbol_name = instrument_config.get('name')
     region = instrument_config.get('region', 'GB')
-    stooq_symbol = instrument_config.get('stooq_symbol', symbol)
 
     logger.info(f"")
     logger.info(f"Starting analysis for {symbol_name} ({symbol})...")
     logger.info("-" * 60)
 
     try:
-        stooq_client = analyzers['stooq_client']
+        market_client = analyzers['market_client']
         technical_analyzer = analyzers['technical_analyzer']
         pattern_recognizer = analyzers['pattern_recognizer']
         llm_analyzer = analyzers['llm_analyzer']
         report_generator = analyzers['report_generator']
+        chart_generator = analyzers.get('chart_generator')
+        signal_tracker = analyzers.get('signal_tracker')
 
         # Get real-time quote
         logger.info(f"Fetching real-time quote for {symbol}...")
-        quote_data = stooq_client.get_quote(stooq_symbol, region)
+        quote_data = market_client.get_quote(symbol, region)
         if quote_data:
             quote_data['symbol'] = symbol
 
@@ -284,12 +319,12 @@ def analyze_instrument(
             logger.error(f"Failed to fetch quote for {symbol}")
             return None
 
-        logger.info(f"Current price: ${quote_data.get('price')}")
+        logger.info(f"Current price: ${quote_data.get('price')} (source: {quote_data.get('source')})")
         logger.info(f"Change: {quote_data.get('change')} ({quote_data.get('change_percent')}%)")
 
         # Get K-line data
         logger.info(f"Fetching K-line data for {symbol}...")
-        kline_data = stooq_client.get_kline(stooq_symbol, timeframe)
+        kline_data = market_client.get_kline(symbol, timeframe)
 
         if kline_data.empty:
             logger.error(f"Failed to fetch K-line data for {symbol}")
@@ -298,7 +333,7 @@ def analyze_instrument(
         logger.info(f"Fetched {len(kline_data)} K-line records")
 
         # Save raw data
-        stooq_client.save_raw_data(kline_data, symbol, timeframe)
+        market_client.save_raw_data(kline_data, symbol, timeframe)
 
         # Calculate technical indicators
         logger.info("Calculating technical indicators...")
@@ -333,14 +368,33 @@ def analyze_instrument(
 
         technical_result['patterns'] = patterns
 
-        # LLM comprehensive analysis
-        logger.info("Performing LLM comprehensive analysis...")
-        llm_result = llm_analyzer.analyze_market(
-            symbol,
-            quote_data,
-            technical_result,
-            news_articles
-        )
+        # Generate technical chart
+        chart_path = None
+        if enable_chart and chart_generator and chart_generator.available:
+            logger.info("Generating technical chart...")
+            chart_path = chart_generator.generate(
+                indicator_data,
+                symbol,
+                symbol_name,
+                timeframe,
+                support_levels=support_levels,
+                resistance_levels=resistance_levels
+            )
+            if chart_path:
+                logger.info(f"Chart saved to: {chart_path}")
+
+        # LLM comprehensive analysis (skipped when LLM is unavailable)
+        if llm_analyzer is None:
+            logger.warning("LLM analyzer unavailable, skipping AI commentary")
+            llm_result = {'error': 'LLM analyzer not configured', 'analysis': {}}
+        else:
+            logger.info("Performing LLM comprehensive analysis...")
+            llm_result = llm_analyzer.analyze_market(
+                symbol,
+                quote_data,
+                technical_result,
+                news_articles
+            )
 
         if llm_result.get('error'):
             logger.warning(f"LLM analysis failed: {llm_result['error']}")
@@ -373,6 +427,15 @@ def analyze_instrument(
         report_path = report_generator.save_report(report_content, symbol, timeframe)
         logger.info(f"Report saved to: {report_path}")
 
+        # Record signal for future accuracy evaluation
+        if signal_tracker:
+            try:
+                signal_tracker.record(
+                    symbol, quote_data, technical_result, llm_result, timeframe
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record signal for {symbol}: {e}")
+
         logger.info(f"{symbol_name} analysis completed")
         logger.info("-" * 60)
 
@@ -381,7 +444,9 @@ def analyze_instrument(
             'quote': quote_data,
             'technical': technical_result,
             'llm': llm_result,
-            'report_path': report_path
+            'report_path': report_path,
+            'chart_path': chart_path,
+            'kline_data': kline_data
         }
 
     except Exception as e:
@@ -478,6 +543,56 @@ def send_notifications(
                 logger.error(f"Error sending {notifier_name} report for {report_data['symbol']}: {e}")
 
 
+def run_backtest(
+    analyzers: Dict[str, Any],
+    instruments_to_analyze: List[Tuple[str, Dict[str, Any]]],
+    logger
+) -> None:
+    """Evaluate historical signal accuracy and print a report."""
+    signal_tracker = analyzers.get('signal_tracker')
+    market_client = analyzers.get('market_client')
+
+    if not signal_tracker or not market_client:
+        logger.error("Signal tracker or market client unavailable")
+        return
+
+    sections = []
+
+    for instrument_name, instrument_config in instruments_to_analyze:
+        symbol = instrument_config.get('symbol')
+        if not symbol:
+            continue
+
+        try:
+            price_df = market_client.fetch_daily(symbol)
+        except Exception as e:
+            logger.error(f"Failed to fetch prices for {symbol}: {e}")
+            continue
+
+        for field in ('technical_direction', 'llm_direction'):
+            stats = signal_tracker.evaluate(symbol, price_df, field)
+            label = 'Technical' if field == 'technical_direction' else 'LLM'
+
+            logger.info(
+                f"{symbol} [{label}] evaluated={stats['total_evaluated']} "
+                f"win_rate={stats['win_rate']}% "
+                f"avg_return={stats['avg_return_pct']}%"
+            )
+            sections.append(f"**{label}**\n\n" + signal_tracker.format_report(stats))
+
+    if sections:
+        output_path = Path('output/reports') / \
+            f"backtest_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            "# 信号准确率回测报告\n\n"
+            f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            + "\n".join(sections),
+            encoding='utf-8'
+        )
+        logger.info(f"Backtest report saved to: {output_path}")
+
+
 def main():
     """Main function"""
     # Parse command line arguments
@@ -506,15 +621,22 @@ def main():
             logger.error("Failed to initialize analyzers")
             sys.exit(1)
 
+        # Determine instruments to analyze
+        instruments_to_analyze = get_instruments_to_analyze(args, config)
+        logger.info(f"Instruments to analyze: {[inst[0] for inst in instruments_to_analyze]}")
+
+        # Backtest-only mode: evaluate past signals and exit
+        if args.backtest:
+            logger.info("Running in backtest mode (no new analysis)")
+            run_backtest(analyzers, instruments_to_analyze, logger)
+            logger.info("Backtest complete")
+            return
+
         # Initialize news modules
         news_fetcher, sentiment_analyzer, news_articles = initialize_news_modules(config, logger)
 
         # Initialize notifiers
         notifiers = initialize_notifiers(config, logger)
-
-        # Determine instruments to analyze
-        instruments_to_analyze = get_instruments_to_analyze(args, config)
-        logger.info(f"Instruments to analyze: {[inst[0] for inst in instruments_to_analyze]}")
 
         # Analyze each instrument
         analysis_results = {}
@@ -527,7 +649,8 @@ def main():
                 news_articles,
                 args.timeframe,
                 logger,
-                args.debug
+                args.debug,
+                enable_chart=not args.no_chart
             )
             if result:
                 analysis_results[instrument_name] = result
@@ -548,6 +671,8 @@ def main():
         logger.info(f"Total {len(analysis_results)} instruments analyzed:")
         for instrument_name, result in analysis_results.items():
             logger.info(f"  - {instrument_name}: {result['report_path']}")
+            if result.get('chart_path'):
+                logger.info(f"      chart: {result['chart_path']}")
         if notifiers:
             logger.info(f"  - Notifications sent to: {', '.join(notifiers.keys())}")
         logger.info("")

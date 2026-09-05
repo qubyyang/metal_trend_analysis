@@ -24,7 +24,8 @@
 
 - **🤖 AI-Driven Analysis**: Integrates GPT-4 and other large language models to generate professional market analysis and natural language reports
 - **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, ATR, and more
-- **📡 Multi-Source Market Data**: Sina Finance as primary with Stooq / Yahoo Finance failover, plus local cache fallback for resilience
+- **📡 Multi-Source Market Data**: Sina Finance as primary with Sina Forex / Stooq / Yahoo Finance failover, plus local cache fallback for resilience
+- **🔗 Cross-Asset Analysis**: Gold/silver, gold/platinum and gold/copper ratios plus rolling correlations against the Dollar Index and crude oil, with 2σ divergence alerts
 - **📈 Technical Chart Generation**: Renders candlestick + MA + Bollinger Bands + support/resistance + MACD + RSI composite charts
 - **🎯 Signal Accuracy Backtesting**: Persists every trend call and verifies it against actual prices, reporting win rate, profit factor and expectancy
 - **📰 News Sentiment Analysis**: Integrates Bloomberg, CNBC, Phoenix Finance and other news sources for intelligent market sentiment analysis
@@ -157,7 +158,7 @@ After analysis is complete, reports are saved in `output/reports/`, charts in `o
 The system tries each data source in priority order, degrading automatically on failure:
 
 ```
-Sina Finance (primary) → Stooq → Yahoo Finance → local cache → stale cache fallback
+Sina Finance (primary) → Sina Forex → Stooq → Yahoo Finance → local cache → stale cache fallback
 ```
 
 Measured source availability (Sept 2026):
@@ -165,6 +166,7 @@ Measured source availability (Sept 2026):
 | Source | Status | Notes |
 |--------|--------|-------|
 | Sina Finance | ✅ Available | Stable direct access, no auth required, **recommended primary** |
+| Sina Forex | ✅ Available | Dedicated to the Dollar Index (DXY); symbol set does not overlap the primary |
 | Stooq | ⚠️ Restricted | Now serves a JS anti-bot challenge page instead of CSV |
 | Yahoo Finance | ⚠️ Restricted | Returns 403 in some regions |
 
@@ -172,13 +174,63 @@ Configure in `config/config.yaml`:
 
 ```yaml
 market_data:
-  providers: ["sina", "stooq", "yahoo"]   # source priority
+  providers: ["sina", "sina_forex", "stooq", "yahoo"]   # source priority
   cache_enabled: true
   cache_ttl: 3600                         # cache lifetime in seconds
   allow_stale_cache: true                 # use expired cache when all sources fail
 ```
 
 The `source` field in quote data indicates which provider actually served the request.
+
+> Upgrade note: if your existing `config.yaml` predates `sina_forex` and omits it
+> from `providers`, the client inserts it automatically ahead of the generic
+> sources — no manual edit is needed to fetch Dollar Index data.
+
+### Supported Instruments
+
+Every symbol code was individually verified against the live API on 2026-09-04.
+Only instruments with actively updating data are included:
+
+| Code | Instrument | Purpose |
+|------|-----------|---------|
+| `XAUUSD` / `XAGUSD` | Spot gold / silver | Primary analysis targets |
+| `XPTUSD` / `XPDUSD` | Spot platinum / palladium | Precious-metal cross comparison |
+| `HGUSD` | COMEX copper | Pro-cyclical reference |
+| `GCUSD` / `SIUSD` | COMEX gold / silver futures | Spot-futures comparison |
+| `CLUSD` | NYMEX crude oil | Inflation / risk-appetite proxy |
+| `DXY` | US Dollar Index | Pricing-currency reference |
+
+Deliberately excluded as confirmed stale: `PL`, `PA`, `DX` — all frozen since 2019.
+
+## 🔗 Cross-Asset Analysis
+
+Beyond per-instrument technical analysis, the system computes cross-asset ratios
+and correlations, emitting a standalone `output/reports/cross_asset_*.md` report:
+
+- **Key ratios**: gold/silver, gold/platinum, gold/copper — with daily change and
+  percentile rank over the trailing 250 sessions;
+- **Rolling correlations**: gold~DXY, gold~silver, gold~crude, silver~copper;
+- **Divergence detection**: flags correlations deviating more than 2σ from their
+  historical mean, or inverting relative to the historical prior.
+
+```yaml
+cross_asset:
+  enabled: true
+  auxiliary_symbols: ["XPTUSD", "HGUSD", "CLUSD", "DXY"]
+  lookback_days: 400
+  correlation_window: 60    # rolling correlation window (trading days)
+  percentile_window: 250    # lookback for ratio percentile ranking
+  divergence_sigma: 2.0     # deviation threshold in standard deviations
+```
+
+Pass `--no-cross-asset` to skip this stage.
+
+> **Correlations are always computed on log returns**, never on prices. Correlating
+> raw price series yields spurious regression driven by shared trend, producing
+> inflated and meaningless coefficients.
+
+Auxiliary instruments are strictly an enhancement: if any of them fails to load,
+only the metrics involving it are skipped — the main pipeline is unaffected.
 
 ## 🎯 Signal Accuracy Backtesting
 

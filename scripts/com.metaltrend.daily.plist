@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS launchd 定时任务配置
+
+  相比 cron 的优势：机器休眠时错过的任务，唤醒后会补跑一次
+  （cron 会直接跳过）。对每日信号采集而言这很重要——
+  漏掉的那天就是永久缺失的样本。
+
+  安装：
+    cp scripts/com.metaltrend.daily.plist ~/Library/LaunchAgents/
+    # 修改下面的 WorkingDirectory 与 ProgramArguments 为你的实际路径
+    launchctl load ~/Library/LaunchAgents/com.metaltrend.daily.plist
+
+  卸载：
+    launchctl unload ~/Library/LaunchAgents/com.metaltrend.daily.plist
+
+  查看状态：
+    launchctl list | grep metaltrend
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.metaltrend.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <!-- 改成你的实际路径 -->
+        <string>/Users/CHANGEME/metal_trend_analysis/scripts/daily_signal_cron.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <!-- 改成你的实际路径 -->
+    <string>/Users/CHANGEME/metal_trend_analysis</string>
+
+    <!-- 每个工作日 06:30 运行（1=周一 ... 5=周五） -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key><integer>1</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>2</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>3</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>4</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key><integer>5</integer>
+            <key>Hour</key><integer>6</integer>
+            <key>Minute</key><integer>30</integer>
+        </dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/metaltrend.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/metaltrend.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

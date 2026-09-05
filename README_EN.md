@@ -28,7 +28,7 @@
 - **📡 Multi-Source Market Data**: Sina Finance as primary with Sina Forex / Stooq / Yahoo Finance failover, plus local cache fallback for resilience
 - **🔗 Cross-Asset Analysis**: Gold/silver, gold/platinum and gold/copper ratios plus rolling correlations against the Dollar Index and crude oil, with 2σ divergence alerts
 - **📈 Technical Chart Generation**: Renders candlestick + MA + Bollinger Bands + support/resistance + MACD + RSI composite charts
-- **🎯 Signal Accuracy Backtesting**: Persists every trend call and verifies it against actual prices, reporting win rate, profit factor and expectancy
+- **🎯 Signal Accuracy Backtesting**: Historical replay for sample bootstrapping, reporting win rate, profit factor, **buy-and-hold benchmark**, significance testing, stratified win rates and decay curves
 - **📰 News Sentiment Analysis**: Integrates Bloomberg, CNBC, Phoenix Finance and other news sources for intelligent market sentiment analysis
 - **🕯️ Candlestick Pattern Recognition**: Intelligently identifies 10+ classic candlestick patterns (Doji, Hammer, Engulfing, etc.)
 - **📱 Multi-Channel Notifications**: Supports Feishu, DingTalk, Slack, Telegram, and Email. Channels auto-enable based on environment variables
@@ -281,32 +281,103 @@ only the metrics involving it are skipped — the main pipeline is unaffected.
 ## 🎯 Signal Accuracy Backtesting
 
 Every trend call is persisted (technical and LLM tracked separately). Once the
-holding period elapses, the call is verified against actual prices:
+holding period elapses, the call is verified against actual prices.
+
+### Historical Backfill: Fixing the Sample-Size Problem
+
+One signal per day means months of waiting before reaching statistical significance
+(≥30 matured signals). Backfill **replays historical bars** to obtain hundreds of
+samples at once:
+
+```bash
+# Preview without writing
+python src/main.py --backfill --backfill-dry-run --backfill-days 1500
+
+# Commit to the store
+python src/main.py --backfill --backfill-days 1500
+```
+
+Three defenses against lookahead bias: day *i*'s signal is computed from
+`df.iloc[:i+1]` only; all indicators are causal `rolling`/`ewm` operators (a dedicated
+test asserts "truncated recompute == full-run slice", so introducing a non-causal
+indicator fails immediately); and the evaluator only reads prices at
+`index > entry_time`. A further test tampers with future bars and asserts historical
+scores are bit-identical.
+
+**Sampling stride defaults to the holding period, not daily.** Sampling every day with
+a 5-day horizon makes adjacent evaluation windows overlap 80%, which understates the
+binomial standard error by roughly √5 — insignificant results start looking like
+p<0.01. Need more samples? Extend the history range, don't shrink the stride.
+
+### Running the Backtest
 
 ```bash
 python src/main.py --backtest
 ```
 
-Sample output:
+### Actual Output (XAUUSD, 2021-05 to 2026-08, 242 non-overlapping samples)
 
 ```
-- Signals evaluated: 42 (26 wins / 13 losses / 3 flat)
-- Win rate: 66.67%
-- Avg win: +2.14% | Avg loss: -1.38%
-- Profit factor: 1.55
-- Expectancy per signal: +0.86%
+- Signals evaluated: 242 (98 wins / 86 losses / 58 flat)
+- Win rate: 53.26%
+- Profit factor: 1.03 | Expectancy: +0.11%
+- Max drawdown: -23.96%
+
+Significance: no significant difference from random (z=+0.88, p=0.3763)
+
+| Basis        | Samples | Win/Up rate | Expectancy (5d) |
+|--------------|---------|-------------|-----------------|
+| Strategy     | 242     | 53.3%       | +0.111%         |
+| Buy and hold | 1495    | 46.9%       | +0.220%         |
+
+Verdict: timing UNDERPERFORMS buy-and-hold by 0.109% — do not trade on this
 ```
 
-Configuration:
+**This is the project's real current state, not demo data.** A 53% win rate looks
+acceptable in isolation, but three checks converge on the same conclusion: z=0.88
+falls short of significance; strategy expectancy is half of buy-and-hold; and the
+strong-signal bucket (|score|≥40) wins 53.2% versus 53.5% for the medium bucket —
+essentially no discrimination. Silver is worse: the strong bucket wins 46.8% against
+55.6% for medium.
+
+Keeping this negative result instead of tuning until it looks good is the point —
+backtesting earns its keep by falsifying. The next move is to examine factor weights
+and the holding period, not to pile on more factors.
+
+### Report Dimensions
+
+| Dimension | Purpose |
+|-----------|---------|
+| Win rate / profit factor / expectancy | Baseline performance |
+| **Buy-and-hold benchmark** | Separates alpha from beta — a permabull scores 55% in a bull market |
+| **Binomial significance test** | Reports z and p above 30 samples; explicitly flags insufficient samples otherwise |
+| **Win rate stratified by signal strength** | If strong signals don't beat weak ones, the score is repackaged noise |
+| **Holding-period decay curve** | Win rate at 1/3/5/10/20 days — momentum or trend? |
+| Max drawdown | Depth of consecutive misses across the equal-weighted signal series (not a real account curve) |
+
+### Configuration
 
 ```yaml
 backtest:
   horizon_days: 5      # holding period in calendar days
   threshold_pct: 0.5   # minimum move to count as directional; below this is "flat"
+
+backfill:
+  warmup_bars: 120     # warmup bars so MA60/MACD are stable
+  # step_bars: 5       # sampling stride; defaults to horizon_days when omitted
 ```
 
-> Evaluation strictly uses prices **after** the signal timestamp — no lookahead bias.
-> Reports flag results as statistically insignificant below 30 samples.
+### Daily Automation
+
+```bash
+# cron: collect on weekdays at 06:30, run a backtest on Mondays
+30 6 * * 1-5 /path/to/metal_trend_analysis/scripts/daily_signal_cron.sh
+```
+
+On macOS prefer `scripts/com.metaltrend.daily.plist` (launchd) over cron: launchd
+re-runs jobs missed while the machine was asleep, whereas cron simply skips them —
+and a skipped day is a permanently missing sample.
+
 
 ## 🧪 Testing
 

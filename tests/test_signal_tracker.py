@@ -221,3 +221,379 @@ class TestFormatReport:
         report = tracker.format_report(stats)
         assert "60.00%" in report
         assert "样本量不足 30 条" in report
+
+
+class TestExtendedStats:
+    """分层胜率 / 最大回撤 / 显著性检验 / 基准对比"""
+
+    def _write(self, tracker, records):
+        tracker.store_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tracker.store_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _prices(self, start, values):
+        index = pd.date_range(start=start, periods=len(values), freq="D")
+        return pd.DataFrame({"close": values}, index=index)
+
+    # ---------------------------------------------------------- 最大回撤
+    def test_max_drawdown_uses_chronological_order(self):
+        """回撤必须按信号时间排序累计，乱序会算出错误结果"""
+        base = pd.Timestamp("2024-01-01")
+        evaluated = [
+            {"entry_time": base + timedelta(days=2), "directional_return": -8.0,
+             "outcome": "loss", "signal_score": None},
+            {"entry_time": base, "directional_return": 5.0,
+             "outcome": "win", "signal_score": None},
+            {"entry_time": base + timedelta(days=4), "directional_return": 3.0,
+             "outcome": "win", "signal_score": None},
+        ]
+        # 时序为 +5, -8, +3 -> 峰值 5，谷底 -3，回撤 -8
+        assert SignalTracker._max_drawdown(evaluated) == pytest.approx(-8.0)
+
+    def test_max_drawdown_zero_when_monotonic(self):
+        base = pd.Timestamp("2024-01-01")
+        evaluated = [
+            {"entry_time": base + timedelta(days=i), "directional_return": 1.0,
+             "outcome": "win", "signal_score": None}
+            for i in range(5)
+        ]
+        assert SignalTracker._max_drawdown(evaluated) == 0.0
+
+    def test_max_drawdown_empty(self):
+        assert SignalTracker._max_drawdown([]) == 0.0
+
+    # ---------------------------------------------------------- 显著性
+    def test_significance_requires_30_samples(self):
+        result = SignalTracker._significance(wins=15, decisive=20)
+        assert result["sufficient_sample"] is False
+        assert result["p_value"] is None
+
+    def test_coin_flip_not_significant(self):
+        """50 条里 28 胜看着像有 alpha，实际与随机无异"""
+        result = SignalTracker._significance(wins=28, decisive=50)
+        assert result["sufficient_sample"] is True
+        assert result["p_value"] > 0.05
+        assert "无显著差异" in result["verdict"]
+
+    def test_strong_edge_is_significant(self):
+        result = SignalTracker._significance(wins=70, decisive=100)
+        assert result["p_value"] < 0.05
+        assert "显著优于随机" in result["verdict"]
+
+    def test_significantly_worse_detected(self):
+        result = SignalTracker._significance(wins=30, decisive=100)
+        assert result["p_value"] < 0.05
+        assert "显著劣于随机" in result["verdict"]
+
+    # ---------------------------------------------------------- 分层
+    def test_score_buckets_split_by_strength(self):
+        evaluated = (
+            [{"signal_score": 60.0, "outcome": "win", "directional_return": 2.0}] * 6
+            + [{"signal_score": 20.0, "outcome": "loss", "directional_return": -1.0}] * 4
+        )
+        buckets = SignalTracker._score_buckets(evaluated)
+        by_band = {b["band"]: b for b in buckets}
+
+        assert by_band["强信号 |score|>=40"]["win_rate"] == 100.0
+        assert by_band["中等 15<=|score|<40"]["win_rate"] == 0.0
+
+    def test_score_buckets_ignore_flats(self):
+        evaluated = [
+            {"signal_score": 50.0, "outcome": "win", "directional_return": 2.0},
+            {"signal_score": 50.0, "outcome": "flat", "directional_return": 0.1},
+        ]
+        buckets = SignalTracker._score_buckets(evaluated)
+        assert buckets[0]["count"] == 1
+
+    def test_score_buckets_empty_without_scores(self):
+        evaluated = [{"signal_score": None, "outcome": "win", "directional_return": 1.0}]
+        assert SignalTracker._score_buckets(evaluated) == []
+
+    def test_negative_scores_bucketed_by_magnitude(self):
+        """看跌的强信号 score 是负数，应按绝对值归入强信号档"""
+        evaluated = [
+            {"signal_score": -55.0, "outcome": "win", "directional_return": 2.0}
+        ]
+        buckets = SignalTracker._score_buckets(evaluated)
+        assert buckets[0]["band"] == "强信号 |score|>=40"
+
+    # ---------------------------------------------------------- 基准
+    def test_benchmark_computes_forward_returns(self, tracker):
+        prices = self._prices(pd.Timestamp("2024-01-01"), np.linspace(100, 110, 60))
+        benchmark = tracker.benchmark(prices)
+
+        assert benchmark["available"] is True
+        assert benchmark["horizon_days"] == 5
+        assert benchmark["avg_return_pct"] > 0  # 单调上涨
+
+    def test_benchmark_unavailable_on_short_series(self, tracker):
+        prices = self._prices(pd.Timestamp("2024-01-01"), [100.0, 101.0])
+        assert tracker.benchmark(prices)["available"] is False
+
+    def test_benchmark_unavailable_on_empty(self, tracker):
+        assert tracker.benchmark(pd.DataFrame())["available"] is False
+
+    def test_format_benchmark_flags_underperformance(self, tracker):
+        """策略跑输买入持有时必须明确警示，不能含糊带过"""
+        stats = tracker._empty_stats("XAUUSD", "technical_direction")
+        stats.update({"total_evaluated": 100, "win_rate": 53.0, "avg_return_pct": 0.11})
+        benchmark = {"available": True, "horizon_days": 5, "samples": 500,
+                     "up_rate": 47.0, "avg_return_pct": 0.32}
+
+        text = tracker.format_benchmark("XAUUSD", stats, benchmark)
+        assert "跑输" in text
+        assert "不应据此实盘" in text
+
+    def test_format_benchmark_recognizes_edge(self, tracker):
+        stats = tracker._empty_stats("XAUUSD", "technical_direction")
+        stats.update({"total_evaluated": 100, "win_rate": 60.0, "avg_return_pct": 0.90})
+        benchmark = {"available": True, "horizon_days": 5, "samples": 500,
+                     "up_rate": 47.0, "avg_return_pct": 0.32}
+
+        assert "创造了" in tracker.format_benchmark("XAUUSD", stats, benchmark)
+
+    # ---------------------------------------------------------- 衰减曲线
+    def test_decay_curve_covers_all_horizons(self, tracker):
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        records = [{
+            "signal_id": f"s{i}", "symbol": "XAUUSD",
+            "created_at": (entry + timedelta(days=i)).isoformat(),
+            "entry_price": 2000.0, "technical_direction": "bullish",
+            "horizon_days": 5,
+        } for i in range(5)]
+        self._write(tracker, records)
+        prices = self._prices(entry, np.linspace(2000, 2200, 60))
+
+        curve = tracker.decay_curve("XAUUSD", prices, horizons=[1, 3, 5, 10])
+        assert [c["horizon_days"] for c in curve] == [1, 3, 5, 10]
+        assert all(c["evaluated"] > 0 for c in curve)
+
+    def test_decay_curve_formatting(self, tracker):
+        curve = [{"horizon_days": 5, "evaluated": 40, "win_rate": 55.0,
+                  "avg_return_pct": 0.3, "profit_factor": 1.2}]
+        text = tracker.format_decay_curve("XAUUSD", curve)
+        assert "5 日" in text and "55.0%" in text
+
+    def test_decay_curve_empty_when_no_samples(self, tracker):
+        curve = [{"horizon_days": 5, "evaluated": 0, "win_rate": 0.0,
+                  "avg_return_pct": 0.0, "profit_factor": None}]
+        assert tracker.format_decay_curve("XAUUSD", curve) == ""
+
+    # ---------------------------------------------------------- source 过滤
+    def test_source_filter_separates_backfill_from_live(self, tracker):
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        records = [
+            {"signal_id": "live1", "symbol": "XAUUSD", "created_at": entry.isoformat(),
+             "entry_price": 2000.0, "technical_direction": "bullish", "horizon_days": 5},
+            {"signal_id": "bf1", "symbol": "XAUUSD",
+             "created_at": (entry + timedelta(days=1)).isoformat(),
+             "entry_price": 2000.0, "technical_direction": "bullish",
+             "horizon_days": 5, "source": "backfill"},
+        ]
+        self._write(tracker, records)
+        prices = self._prices(entry, np.linspace(2000, 2200, 30))
+
+        assert tracker.evaluate("XAUUSD", prices, source="live")["total_evaluated"] == 1
+        assert tracker.evaluate("XAUUSD", prices, source="backfill")["total_evaluated"] == 1
+        assert tracker.evaluate("XAUUSD", prices)["total_evaluated"] == 2
+
+    def test_details_json_serializable(self, tracker):
+        """details 含 Timestamp 会导致 JSON 序列化失败"""
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        self._write(tracker, [{
+            "signal_id": "s0", "symbol": "XAUUSD", "created_at": entry.isoformat(),
+            "entry_price": 2000.0, "technical_direction": "bullish", "horizon_days": 5,
+        }])
+        prices = self._prices(entry, np.linspace(2000, 2200, 30))
+
+        stats = tracker.evaluate("XAUUSD", prices)
+        json.dumps(stats["details"], ensure_ascii=False)
+
+
+class TestExtendedStats:
+    """分层胜率 / 最大回撤 / 显著性检验 / 基准对比"""
+
+    def _write(self, tracker, records):
+        tracker.store_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tracker.store_path, "w", encoding="utf-8") as f:
+            for r in records:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _prices(self, start, values):
+        index = pd.date_range(start=start, periods=len(values), freq="D")
+        return pd.DataFrame({"close": values}, index=index)
+
+    # ---------------------------------------------------------- 最大回撤
+    def test_max_drawdown_uses_chronological_order(self):
+        """回撤必须按信号时间排序累计，乱序会算出错误结果"""
+        base = pd.Timestamp("2024-01-01")
+        evaluated = [
+            {"entry_time": base + timedelta(days=2), "directional_return": -8.0,
+             "outcome": "loss", "signal_score": None},
+            {"entry_time": base, "directional_return": 5.0,
+             "outcome": "win", "signal_score": None},
+            {"entry_time": base + timedelta(days=4), "directional_return": 3.0,
+             "outcome": "win", "signal_score": None},
+        ]
+        # 时序为 +5, -8, +3 -> 峰值 5，谷底 -3，回撤 -8
+        assert SignalTracker._max_drawdown(evaluated) == pytest.approx(-8.0)
+
+    def test_max_drawdown_zero_when_monotonic(self):
+        base = pd.Timestamp("2024-01-01")
+        evaluated = [
+            {"entry_time": base + timedelta(days=i), "directional_return": 1.0,
+             "outcome": "win", "signal_score": None}
+            for i in range(5)
+        ]
+        assert SignalTracker._max_drawdown(evaluated) == 0.0
+
+    def test_max_drawdown_empty(self):
+        assert SignalTracker._max_drawdown([]) == 0.0
+
+    # ---------------------------------------------------------- 显著性
+    def test_significance_requires_30_samples(self):
+        result = SignalTracker._significance(wins=15, decisive=20)
+        assert result["sufficient_sample"] is False
+        assert result["p_value"] is None
+
+    def test_coin_flip_not_significant(self):
+        """50 条里 28 胜看着像有 alpha，实际与随机无异"""
+        result = SignalTracker._significance(wins=28, decisive=50)
+        assert result["sufficient_sample"] is True
+        assert result["p_value"] > 0.05
+        assert "无显著差异" in result["verdict"]
+
+    def test_strong_edge_is_significant(self):
+        result = SignalTracker._significance(wins=70, decisive=100)
+        assert result["p_value"] < 0.05
+        assert "显著优于随机" in result["verdict"]
+
+    def test_significantly_worse_detected(self):
+        result = SignalTracker._significance(wins=30, decisive=100)
+        assert result["p_value"] < 0.05
+        assert "显著劣于随机" in result["verdict"]
+
+    # ---------------------------------------------------------- 分层
+    def test_score_buckets_split_by_strength(self):
+        evaluated = (
+            [{"signal_score": 60.0, "outcome": "win", "directional_return": 2.0}] * 6
+            + [{"signal_score": 20.0, "outcome": "loss", "directional_return": -1.0}] * 4
+        )
+        buckets = SignalTracker._score_buckets(evaluated)
+        by_band = {b["band"]: b for b in buckets}
+
+        assert by_band["强信号 |score|>=40"]["win_rate"] == 100.0
+        assert by_band["中等 15<=|score|<40"]["win_rate"] == 0.0
+
+    def test_score_buckets_ignore_flats(self):
+        evaluated = [
+            {"signal_score": 50.0, "outcome": "win", "directional_return": 2.0},
+            {"signal_score": 50.0, "outcome": "flat", "directional_return": 0.1},
+        ]
+        buckets = SignalTracker._score_buckets(evaluated)
+        assert buckets[0]["count"] == 1
+
+    def test_score_buckets_empty_without_scores(self):
+        evaluated = [{"signal_score": None, "outcome": "win", "directional_return": 1.0}]
+        assert SignalTracker._score_buckets(evaluated) == []
+
+    def test_negative_scores_bucketed_by_magnitude(self):
+        """看跌的强信号 score 是负数，应按绝对值归入强信号档"""
+        evaluated = [
+            {"signal_score": -55.0, "outcome": "win", "directional_return": 2.0}
+        ]
+        buckets = SignalTracker._score_buckets(evaluated)
+        assert buckets[0]["band"] == "强信号 |score|>=40"
+
+    # ---------------------------------------------------------- 基准
+    def test_benchmark_computes_forward_returns(self, tracker):
+        prices = self._prices(pd.Timestamp("2024-01-01"), np.linspace(100, 110, 60))
+        benchmark = tracker.benchmark(prices)
+
+        assert benchmark["available"] is True
+        assert benchmark["horizon_days"] == 5
+        assert benchmark["avg_return_pct"] > 0  # 单调上涨
+
+    def test_benchmark_unavailable_on_short_series(self, tracker):
+        prices = self._prices(pd.Timestamp("2024-01-01"), [100.0, 101.0])
+        assert tracker.benchmark(prices)["available"] is False
+
+    def test_benchmark_unavailable_on_empty(self, tracker):
+        assert tracker.benchmark(pd.DataFrame())["available"] is False
+
+    def test_format_benchmark_flags_underperformance(self, tracker):
+        """策略跑输买入持有时必须明确警示，不能含糊带过"""
+        stats = tracker._empty_stats("XAUUSD", "technical_direction")
+        stats.update({"total_evaluated": 100, "win_rate": 53.0, "avg_return_pct": 0.11})
+        benchmark = {"available": True, "horizon_days": 5, "samples": 500,
+                     "up_rate": 47.0, "avg_return_pct": 0.32}
+
+        text = tracker.format_benchmark("XAUUSD", stats, benchmark)
+        assert "跑输" in text
+        assert "不应据此实盘" in text
+
+    def test_format_benchmark_recognizes_edge(self, tracker):
+        stats = tracker._empty_stats("XAUUSD", "technical_direction")
+        stats.update({"total_evaluated": 100, "win_rate": 60.0, "avg_return_pct": 0.90})
+        benchmark = {"available": True, "horizon_days": 5, "samples": 500,
+                     "up_rate": 47.0, "avg_return_pct": 0.32}
+
+        assert "创造了" in tracker.format_benchmark("XAUUSD", stats, benchmark)
+
+    # ---------------------------------------------------------- 衰减曲线
+    def test_decay_curve_covers_all_horizons(self, tracker):
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        records = [{
+            "signal_id": f"s{i}", "symbol": "XAUUSD",
+            "created_at": (entry + timedelta(days=i)).isoformat(),
+            "entry_price": 2000.0, "technical_direction": "bullish",
+            "horizon_days": 5,
+        } for i in range(5)]
+        self._write(tracker, records)
+        prices = self._prices(entry, np.linspace(2000, 2200, 60))
+
+        curve = tracker.decay_curve("XAUUSD", prices, horizons=[1, 3, 5, 10])
+        assert [c["horizon_days"] for c in curve] == [1, 3, 5, 10]
+        assert all(c["evaluated"] > 0 for c in curve)
+
+    def test_decay_curve_formatting(self, tracker):
+        curve = [{"horizon_days": 5, "evaluated": 40, "win_rate": 55.0,
+                  "avg_return_pct": 0.3, "profit_factor": 1.2}]
+        text = tracker.format_decay_curve("XAUUSD", curve)
+        assert "5 日" in text and "55.0%" in text
+
+    def test_decay_curve_empty_when_no_samples(self, tracker):
+        curve = [{"horizon_days": 5, "evaluated": 0, "win_rate": 0.0,
+                  "avg_return_pct": 0.0, "profit_factor": None}]
+        assert tracker.format_decay_curve("XAUUSD", curve) == ""
+
+    # ---------------------------------------------------------- source 过滤
+    def test_source_filter_separates_backfill_from_live(self, tracker):
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        records = [
+            {"signal_id": "live1", "symbol": "XAUUSD", "created_at": entry.isoformat(),
+             "entry_price": 2000.0, "technical_direction": "bullish", "horizon_days": 5},
+            {"signal_id": "bf1", "symbol": "XAUUSD",
+             "created_at": (entry + timedelta(days=1)).isoformat(),
+             "entry_price": 2000.0, "technical_direction": "bullish",
+             "horizon_days": 5, "source": "backfill"},
+        ]
+        self._write(tracker, records)
+        prices = self._prices(entry, np.linspace(2000, 2200, 30))
+
+        assert tracker.evaluate("XAUUSD", prices, source="live")["total_evaluated"] == 1
+        assert tracker.evaluate("XAUUSD", prices, source="backfill")["total_evaluated"] == 1
+        assert tracker.evaluate("XAUUSD", prices)["total_evaluated"] == 2
+
+    def test_details_json_serializable(self, tracker):
+        """details 含 Timestamp 会导致 JSON 序列化失败"""
+        entry = pd.Timestamp("2024-01-01T09:00:00")
+        self._write(tracker, [{
+            "signal_id": "s0", "symbol": "XAUUSD", "created_at": entry.isoformat(),
+            "entry_price": 2000.0, "technical_direction": "bullish", "horizon_days": 5,
+        }])
+        prices = self._prices(entry, np.linspace(2000, 2200, 30))
+
+        stats = tracker.evaluate("XAUUSD", prices)
+        json.dumps(stats["details"], ensure_ascii=False)

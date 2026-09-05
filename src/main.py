@@ -19,6 +19,7 @@ from src.analyzers.technical import TechnicalAnalyzer
 from src.analyzers.patterns import PatternRecognizer
 from src.analyzers.news_sentiment import NewsSentimentAnalyzer
 from src.analyzers.signal_tracker import SignalTracker
+from src.analyzers.signal_backfill import SignalBackfiller
 from src.analyzers.cross_asset import CrossAssetAnalyzer
 from src.llm.analyzer import LLMAnalyzer
 from src.reporting.generator import ReportGenerator
@@ -46,6 +47,12 @@ def parse_arguments() -> argparse.Namespace:
                         help='Disable chart generation')
     parser.add_argument('--backtest', action='store_true',
                         help='Only evaluate historical signal accuracy, skip analysis')
+    parser.add_argument('--backfill', action='store_true',
+                        help='Replay history to generate signal records, then exit')
+    parser.add_argument('--backfill-days', type=int, default=1000,
+                        help='How many daily bars to pull when backfilling')
+    parser.add_argument('--backfill-dry-run', action='store_true',
+                        help='Preview backfill results without writing to the store')
     parser.add_argument('--no-cross-asset', action='store_true',
                         help='Disable cross-asset ratio/correlation analysis')
     return parser.parse_args()
@@ -688,7 +695,38 @@ def run_backtest(
                 f"win_rate={stats['win_rate']}% "
                 f"avg_return={stats['avg_return_pct']}%"
             )
+            significance = stats.get('significance') or {}
+            if significance.get('verdict'):
+                logger.info(f"{symbol} [{label}] {significance['verdict']}")
+
             sections.append(f"**{label}**\n\n" + signal_tracker.format_report(stats))
+
+            # 只对技术信号做基准对比：胜率脱离买入持有基准没有意义
+            if field == 'technical_direction':
+                benchmark = signal_tracker.benchmark(price_df)
+                bench_text = signal_tracker.format_benchmark(symbol, stats, benchmark)
+                if bench_text:
+                    sections.append(bench_text)
+                    if benchmark.get('available'):
+                        edge = stats['avg_return_pct'] - benchmark['avg_return_pct']
+                        logger.info(
+                            f"{symbol} strategy {stats['avg_return_pct']:+.3f}% vs "
+                            f"buy-and-hold {benchmark['avg_return_pct']:+.3f}% "
+                            f"(edge {edge:+.3f}%)"
+                        )
+
+        # 衰减曲线只对技术信号计算——LLM 信号样本通常太少，
+        # 分成 5 个持有期后每格都不足以说明问题
+        curve = signal_tracker.decay_curve(symbol, price_df)
+        curve_text = signal_tracker.format_decay_curve(symbol, curve)
+        if curve_text:
+            sections.append(curve_text)
+            best = max(curve, key=lambda c: c['win_rate'] if c['evaluated'] else -1)
+            if best['evaluated']:
+                logger.info(
+                    f"{symbol} best horizon: {best['horizon_days']}d "
+                    f"win_rate={best['win_rate']}%"
+                )
 
     if sections:
         output_path = Path('output/reports') / \
@@ -701,6 +739,52 @@ def run_backtest(
             encoding='utf-8'
         )
         logger.info(f"Backtest report saved to: {output_path}")
+
+
+def run_backfill(
+    analyzers: Dict[str, Any],
+    instruments_to_analyze: List[Tuple[str, Dict[str, Any]]],
+    config: Dict[str, Any],
+    args,
+    logger
+) -> None:
+    """Replay historical bars to bootstrap the signal store.
+
+    每日采集一条信号，攒到统计显著（>=30 条已到期）需要数月。
+    回填用历史 K 线逐日重放，一次拿到数百条样本。
+    前视偏差的防护见 signal_backfill 模块文档。
+    """
+    signal_tracker = analyzers.get('signal_tracker')
+    technical_analyzer = analyzers.get('technical_analyzer')
+    market_client = analyzers.get('market_client')
+
+    if not all([signal_tracker, technical_analyzer, market_client]):
+        logger.error("Backfill requires signal tracker, technical analyzer and market client")
+        return
+
+    backfiller = SignalBackfiller(
+        technical_analyzer, signal_tracker, config.get('backfill', {})
+    )
+
+    total = 0
+    for instrument_name, instrument_config in instruments_to_analyze:
+        symbol = instrument_config.get('symbol')
+        if not symbol:
+            continue
+
+        try:
+            df = market_client.get_kline(symbol, 'daily', args.backfill_days)
+        except Exception as e:
+            logger.error(f"Failed to fetch history for {symbol}: {e}")
+            continue
+
+        records = backfiller.backfill(symbol, df, dry_run=args.backfill_dry_run)
+        total += len(records)
+
+    mode = "dry-run (nothing written)" if args.backfill_dry_run else "written to store"
+    logger.info(f"Backfill complete: {total} signals {mode}")
+    if total and not args.backfill_dry_run:
+        logger.info("Run with --backtest to evaluate the backfilled signals")
 
 
 def main():
@@ -736,6 +820,11 @@ def main():
         logger.info(f"Instruments to analyze: {[inst[0] for inst in instruments_to_analyze]}")
 
         # Backtest-only mode: evaluate past signals and exit
+        if args.backfill:
+            logger.info("Running in backfill mode (replaying history)")
+            run_backfill(analyzers, instruments_to_analyze, config, args, logger)
+            return
+
         if args.backtest:
             logger.info("Running in backtest mode (no new analysis)")
             run_backtest(analyzers, instruments_to_analyze, logger)

@@ -11,9 +11,10 @@ api:
 market_data:
   # 数据源优先级，主源失败时自动降级到下一个
   # sina  : 新浪财经，国内直连稳定，推荐作为主源
+  # sina_forex : 新浪外汇接口，仅覆盖美元指数（DXY），与 sina 品种不重叠
   # stooq : 已启用 JS 反爬挑战，部分网络环境下不可用
   # yahoo : 对部分地区返回 403，仅作末位兜底
-  providers: ["sina", "stooq", "yahoo"]
+  providers: ["sina", "sina_forex", "stooq", "yahoo"]
   cache_enabled: true
   cache_ttl: 3600          # 缓存有效期（秒）
   cache_dir: "data/cache"
@@ -27,6 +28,17 @@ backtest:
   signal_store: "data/signals/signals.jsonl"
   horizon_days: 5      # 信号持有期（自然日），到期后评估方向是否正确
   threshold_pct: 0.5   # 判定有效方向变动的最小幅度，低于此值计为“平”
+
+# 跨品种联动分析（可选增强，任一辅助品种失败只跳过该项，不影响主流程）
+cross_asset:
+  enabled: true
+  # 除金银外额外拉取的参照品种：
+  #   XPTUSD 铂金 / HGUSD 铜 / CLUSD 原油 / DXY 美元指数
+  auxiliary_symbols: ["XPTUSD", "HGUSD", "CLUSD", "DXY"]
+  lookback_days: 400        # 拉取的历史日线根数
+  correlation_window: 60    # 滚动相关性窗口（交易日）
+  percentile_window: 250    # 比价历史分位参考窗口
+  divergence_sigma: 2.0     # 相关性偏离历史均值多少个标准差算作背离
 
 # LLM API 配置
 llm:

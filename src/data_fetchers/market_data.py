@@ -19,6 +19,7 @@ from loguru import logger
 
 from ..utils.exceptions import DataFetchError, ValidationError
 from .base_provider import BaseDataProvider
+from .sina_forex_provider import SinaForexProvider
 from .sina_provider import SinaProvider
 from .stooq_provider import StooqProvider
 from .yahoo_provider import YahooProvider
@@ -26,12 +27,30 @@ from .yahoo_provider import YahooProvider
 # 数据源注册表
 PROVIDER_REGISTRY = {
     "sina": SinaProvider,
+    "sina_forex": SinaForexProvider,
     "stooq": StooqProvider,
     "yahoo": YahooProvider,
 }
 
-# 新浪置于首位：国内直连稳定，且 Stooq 已启用 JS 反爬、Yahoo 对部分地区返回 403
-DEFAULT_PROVIDER_ORDER = ["sina", "stooq", "yahoo"]
+# 新浪置于首位：国内直连稳定，且 Stooq 已启用 JS 反爬、Yahoo 对部分地区返回 403。
+# sina_forex 仅覆盖美元指数（DXY），与 sina 的品种集合互不重叠，
+# 由各 provider 的 supports() 自行过滤，不会相互抢占。
+DEFAULT_PROVIDER_ORDER = ["sina", "sina_forex", "stooq", "yahoo"]
+
+# 品种无差别接受的「通用」数据源。
+#
+# 这些源的 supports() 恒为 True（无品种白名单），因此若排在专用源之前，
+# 会抢先对自己并不支持的品种发起请求并失败——虽然最终仍会降级成功，
+# 但白白付出两次网络往返。补齐专用源时需插到它们之前。
+GENERIC_PROVIDERS = {"stooq", "yahoo"}
+
+# 必须始终可用的数据源。
+#
+# 背景：用户既有的 config.yaml 中 providers 列表是在 sina_forex 出现之前
+# 写死的，若严格按配置构建，美元指数会降级到 stooq/yahoo 并双双失败。
+# 这类「新增数据源对存量配置不可见」的问题在升级场景中极易被忽略，
+# 因此对品种集合互不重叠、且无副作用的专用源做隐式补齐。
+ALWAYS_AVAILABLE_PROVIDERS = ["sina_forex"]
 
 
 class MarketDataClient:
@@ -60,7 +79,20 @@ class MarketDataClient:
     # 初始化
     # ------------------------------------------------------------------
     def _build_providers(self) -> List[BaseDataProvider]:
-        order = self.config.get("providers") or DEFAULT_PROVIDER_ORDER
+        order = list(self.config.get("providers") or DEFAULT_PROVIDER_ORDER)
+
+        # 补齐存量配置中缺失的专用数据源（见 ALWAYS_AVAILABLE_PROVIDERS 说明）。
+        # 插入位置在第一个「通用源」之前：专用源有品种白名单，不会误抢；
+        # 而通用源 supports() 恒真，排在前面会对不支持的品种做无谓的失败请求。
+        for name in ALWAYS_AVAILABLE_PROVIDERS:
+            if name in order:
+                continue
+            insert_at = next(
+                (i for i, n in enumerate(order) if n in GENERIC_PROVIDERS),
+                len(order),
+            )
+            order.insert(insert_at, name)
+
         providers = []
 
         for name in order:

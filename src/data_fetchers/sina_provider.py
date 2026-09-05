@@ -23,9 +23,25 @@ from ..utils.exceptions import DataFetchError, NetworkError
 from .base_provider import BaseDataProvider
 
 # 通用代码 -> 新浪全球期货代码
+#
+# 代码有效性于 2026-09-04 实测校验，仅收录仍在更新的品种：
+#   XAU/XAG   5185+ 行，更新至最新交易日
+#   XPT/XPD   2578/2280 行，更新至最新交易日
+#   HG/GC/SI  2590 行左右，更新至最新交易日
+#   CL        7690 行，更新至最新交易日
+# 已确认停更、故意不收录：PL、PA、DX（均停留在 2019-04/05，仅 1~13 行）
 SYMBOL_MAP = {
+    # 现货贵金属
     "XAUUSD": "XAU",  # 伦敦金（现货黄金）
     "XAGUSD": "XAG",  # 伦敦银（现货白银）
+    "XPTUSD": "XPT",  # 现货铂金
+    "XPDUSD": "XPD",  # 现货钯金
+    # 工业金属 / 期货
+    "HGUSD": "HG",    # COMEX 铜
+    "GCUSD": "GC",    # COMEX 黄金期货
+    "SIUSD": "SI",    # COMEX 白银期货
+    # 宏观参照
+    "CLUSD": "CL",    # NYMEX 原油（通胀/风险偏好代理）
 }
 
 # 剥离 JSONP 回调包装：x([...]) / var x = [...]
@@ -48,7 +64,7 @@ class SinaProvider(BaseDataProvider):
         return "sina"
 
     def supports(self, symbol: str) -> bool:
-        """仅支持已映射的贵金属品种"""
+        """仅支持已映射且经实测确认仍在更新的品种"""
         return bool(symbol) and symbol.upper() in SYMBOL_MAP
 
     def _resolve_symbol(self, symbol: str) -> str:

@@ -302,6 +302,107 @@ class ReportGenerator:
 
         return '\n'.join(report_lines)
 
+    def generate_cross_asset_report(self, result: Dict[str, Any]) -> str:
+        """生成跨品种联动分析报告（Markdown）
+
+        Args:
+            result: CrossAssetAnalyzer.analyze() 的返回值
+
+        Returns:
+            Markdown 文本。若无可用数据，返回带说明的占位报告。
+        """
+        lines: List[str] = []
+        lines.append("# 跨品种联动分析")
+        lines.append("")
+        lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        symbols = result.get('symbols') or []
+        if symbols:
+            lines.append(f"**覆盖品种**: {', '.join(symbols)}")
+        lines.append("")
+
+        if not result.get('available'):
+            lines.append("> 本次运行未获取到足够的跨品种数据，联动分析已跳过。")
+            lines.append("")
+            return '\n'.join(lines)
+
+        # ---------------- 比价 ----------------
+        ratios = result.get('ratios') or []
+        if ratios:
+            lines.append("## 一、关键比价")
+            lines.append("")
+            lines.append("| 比价 | 品种对 | 当前值 | 日变动 | 历史分位 | 区间(低~高) | 样本 |")
+            lines.append("|---|---|---:|---:|---:|---|---:|")
+            for r in ratios:
+                pct = r.get('percentile')
+                pct_text = f"{pct:.0f}%" if pct == pct else "—"  # NaN != NaN
+                lines.append(
+                    f"| {r['name']} | {r['pair']} | {r['value']:.2f} | "
+                    f"{r['change_percent']:+.2f}% | {pct_text} | "
+                    f"{r['window_low']:.2f} ~ {r['window_high']:.2f} | "
+                    f"{r['sample_size']} |"
+                )
+            lines.append("")
+            for r in ratios:
+                lines.append(f"- **{r['name']}**：{r['note']}")
+            lines.append("")
+
+        # ---------------- 相关性 ----------------
+        correlations = result.get('correlations') or []
+        if correlations:
+            window = correlations[0].get('window', 60)
+            lines.append(f"## 二、滚动相关性（{window} 日，基于对数收益率）")
+            lines.append("")
+            lines.append("| 组合 | 当前相关性 | 历史均值 | 偏离(σ) | 先验方向 | 状态 |")
+            lines.append("|---|---:|---:|---:|---|---|")
+            for c in correlations:
+                if c.get('sign_flipped'):
+                    status = "⚠ 方向翻转"
+                elif c.get('diverged'):
+                    status = "⚠ 显著偏离"
+                else:
+                    status = "正常"
+                expected = "负相关" if c['expected'] == 'negative' else "正相关"
+                lines.append(
+                    f"| {c['pair']} | {c['correlation']:+.3f} | "
+                    f"{c['historical_mean']:+.3f} | {c['z_score']:+.2f} | "
+                    f"{expected} | {status} |"
+                )
+            lines.append("")
+            lines.append(
+                "> 说明：相关性一律基于**对数收益率**计算。直接对价格序列求相关会因"
+                "共同趋势产生伪回归，得到虚高的相关系数。"
+            )
+            lines.append("")
+
+        # ---------------- 提示 ----------------
+        alerts = result.get('alerts') or []
+        lines.append("## 三、异常提示")
+        lines.append("")
+        if alerts:
+            for a in alerts:
+                lines.append(f"- {a}")
+        else:
+            lines.append("- 本次未发现比价极端值或相关性结构性异常。")
+        lines.append("")
+
+        lines.append("---")
+        lines.append("")
+        lines.append("*免责声明: 本报告仅供参考，不构成投资建议。投资有风险，入市需谨慎。*")
+        lines.append("")
+
+        return '\n'.join(lines)
+
+    def save_cross_asset_report(self, content: str) -> str:
+        """保存跨品种联动报告"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filepath = self.output_dir / f"cross_asset_{timestamp}.md"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        return str(filepath)
+
     def save_report(self, content: str, symbol: str, timeframe: str = "1d") -> str:
         """
         保存报告到文件

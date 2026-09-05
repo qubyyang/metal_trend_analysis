@@ -286,3 +286,107 @@ class TestStooqParsing:
             )
             with pytest.raises(DataFetchError):
                 provider.fetch_daily("BADSYM")
+
+
+class TestLegacyConfigCompatibility:
+    """存量配置兼容性
+
+    新增的专用数据源必须对旧 config.yaml 可见，
+    否则升级后美元指数等新品种会静默降级失败。
+    """
+
+    def test_sina_forex_inserted_before_generic_providers(self):
+        """旧配置未列出 sina_forex 时，应补齐到通用源之前"""
+        client = MarketDataClient({
+            "providers": ["sina", "stooq", "yahoo"],
+            "cache_enabled": False,
+        })
+        names = [p.name for p in client.providers]
+
+        assert names == ["sina", "sina_forex", "stooq", "yahoo"]
+        # 用户显式配置的相对顺序未被打乱
+        assert names.index("sina") < names.index("stooq") < names.index("yahoo")
+
+    def test_no_duplicate_when_already_configured(self):
+        """已显式配置时不得重复添加"""
+        client = MarketDataClient({
+            "providers": ["sina", "sina_forex"],
+            "cache_enabled": False,
+        })
+        names = [p.name for p in client.providers]
+
+        assert names.count("sina_forex") == 1
+
+    def test_dxy_tried_by_forex_provider_first(self):
+        """DXY 应优先落到 sina_forex，避免通用源做无谓的失败请求
+
+        stooq / yahoo 的 supports() 恒为 True，若排在前面会先请求再失败，
+        白白付出两次网络往返。
+        """
+        client = MarketDataClient({
+            "providers": ["sina", "stooq", "yahoo"],
+            "cache_enabled": False,
+        })
+        supporting = [p.name for p in client.providers if p.supports("DXY")]
+
+        assert supporting[0] == "sina_forex"
+
+    def test_metals_not_captured_by_forex_provider(self):
+        """贵金属不得被外汇源抢占"""
+        client = MarketDataClient({"cache_enabled": False})
+        supporting = [p.name for p in client.providers if p.supports("XAUUSD")]
+
+        assert supporting[0] == "sina"
+        assert "sina_forex" not in supporting
+
+
+class TestLegacyConfigCompatibility:
+    """存量配置兼容性
+
+    新增的专用数据源必须对旧 config.yaml 可见，
+    否则升级后美元指数等新品种会静默降级失败。
+    """
+
+    def test_sina_forex_inserted_before_generic_providers(self):
+        """旧配置未列出 sina_forex 时，应补齐到通用源之前"""
+        client = MarketDataClient({
+            "providers": ["sina", "stooq", "yahoo"],
+            "cache_enabled": False,
+        })
+        names = [p.name for p in client.providers]
+
+        assert names == ["sina", "sina_forex", "stooq", "yahoo"]
+        # 用户显式配置的相对顺序未被打乱
+        assert names.index("sina") < names.index("stooq") < names.index("yahoo")
+
+    def test_no_duplicate_when_already_configured(self):
+        """已显式配置时不得重复添加"""
+        client = MarketDataClient({
+            "providers": ["sina", "sina_forex"],
+            "cache_enabled": False,
+        })
+        names = [p.name for p in client.providers]
+
+        assert names.count("sina_forex") == 1
+
+    def test_dxy_tried_by_forex_provider_first(self):
+        """DXY 应优先落到 sina_forex，避免通用源做无谓的失败请求
+
+        stooq / yahoo 的 supports() 恒为 True，若排在前面会先请求再失败，
+        白白付出两次网络往返。
+        """
+        client = MarketDataClient({
+            "providers": ["sina", "stooq", "yahoo"],
+            "cache_enabled": False,
+        })
+        supporting = [p.name for p in client.providers if p.supports("DXY")]
+
+        assert supporting[0] == "sina_forex"
+
+    def test_metals_not_captured_by_forex_provider(self):
+        """贵金属不得被外汇源抢占"""
+        client = MarketDataClient({"cache_enabled": False})
+        supporting = [p.name for p in client.providers if p.supports("XAUUSD")]
+
+        assert supporting[0] == "sina"
+        assert "sina_forex" not in supporting

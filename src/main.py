@@ -19,6 +19,7 @@ from src.analyzers.technical import TechnicalAnalyzer
 from src.analyzers.patterns import PatternRecognizer
 from src.analyzers.news_sentiment import NewsSentimentAnalyzer
 from src.analyzers.signal_tracker import SignalTracker
+from src.analyzers.cross_asset import CrossAssetAnalyzer
 from src.llm.analyzer import LLMAnalyzer
 from src.reporting.generator import ReportGenerator
 from src.reporting.chart import ChartGenerator
@@ -45,6 +46,8 @@ def parse_arguments() -> argparse.Namespace:
                         help='Disable chart generation')
     parser.add_argument('--backtest', action='store_true',
                         help='Only evaluate historical signal accuracy, skip analysis')
+    parser.add_argument('--no-cross-asset', action='store_true',
+                        help='Disable cross-asset ratio/correlation analysis')
     return parser.parse_args()
 
 
@@ -99,6 +102,10 @@ def initialize_analyzers(config: Dict[str, Any], logger) -> Tuple[Dict[str, Any]
         # Signal tracker for accuracy backtesting
         analyzers['signal_tracker'] = SignalTracker(config.get('backtest', {}))
         logger.info("Signal tracker initialized successfully")
+
+        # Cross-asset analyzer (optional enhancement)
+        analyzers['cross_asset'] = CrossAssetAnalyzer(config.get('cross_asset', {}))
+        logger.info("Cross-asset analyzer initialized successfully")
 
         return analyzers, True
 
@@ -457,6 +464,97 @@ def analyze_instrument(
         return None
 
 
+def run_cross_asset_analysis(
+    analyzers: Dict[str, Any],
+    analysis_results: Dict[str, Any],
+    config: Dict[str, Any],
+    logger,
+) -> Optional[Dict[str, Any]]:
+    """Run cross-asset ratio and correlation analysis.
+
+    主分析已经取过金银日线，这里只需**增量**拉取辅助品种
+    （铂金、铜、原油、美元指数）。辅助品种纯属增强项：
+    任何一个拉取失败都只是少一组指标，绝不影响主流程。
+    """
+    cross_config = config.get('cross_asset', {})
+    if cross_config.get('enabled') is False:
+        logger.info("Cross-asset analysis disabled by config")
+        return None
+
+    market_client = analyzers.get('market_client')
+    if market_client is None:
+        return None
+
+    # 主分析已有的品种直接复用，避免重复请求
+    data: Dict[str, Any] = {}
+    for result in analysis_results.values():
+        symbol = result.get('symbol')
+        df = result.get('kline_data')
+        if symbol and df is not None and not df.empty:
+            data[symbol] = df
+
+    # 增量拉取辅助品种
+    auxiliary = cross_config.get(
+        'auxiliary_symbols', ['XPTUSD', 'HGUSD', 'CLUSD', 'DXY']
+    )
+    count = int(cross_config.get('lookback_days', 400))
+
+    for symbol in auxiliary:
+        if symbol in data:
+            continue
+        try:
+            df = market_client.get_kline(symbol, '1d', count=count)
+            if df is not None and not df.empty:
+                data[symbol] = df
+                logger.debug(f"Cross-asset: fetched {symbol} ({len(df)} bars)")
+        except Exception as e:
+            # 辅助品种失败不升级为错误，仅记录
+            logger.warning(f"Cross-asset: skipped {symbol} ({e})")
+
+    if len(data) < 2:
+        logger.info("Cross-asset analysis skipped: fewer than 2 instruments available")
+        return None
+
+    try:
+        analyzer = analyzers.get('cross_asset') or CrossAssetAnalyzer(cross_config)
+        result = analyzer.analyze(data)
+    except Exception as e:
+        logger.error(f"Cross-asset analysis failed: {e}")
+        return None
+
+    if not result.get('available'):
+        return None
+
+    logger.info("")
+    logger.info("Cross-asset analysis:")
+    for ratio in result.get('ratios', []):
+        logger.info(
+            f"  - {ratio['name']} ({ratio['pair']}): {ratio['value']:.2f} "
+            f"({ratio['change_percent']:+.2f}%), "
+            f"{ratio['percentile']:.0f}th pct of last {ratio['sample_size']}d"
+        )
+    for corr in result.get('correlations', []):
+        logger.info(
+            f"  - corr {corr['pair']}: {corr['correlation']:+.2f} "
+            f"(hist {corr['historical_mean']:+.2f}, {corr['z_score']:+.1f}σ)"
+        )
+    for alert in result.get('alerts', []):
+        logger.info(f"  ! {alert}")
+
+    # 输出独立的联动分析报告
+    report_generator = analyzers.get('report_generator')
+    if report_generator is not None:
+        try:
+            content = report_generator.generate_cross_asset_report(result)
+            path = report_generator.save_cross_asset_report(content)
+            result['report_path'] = path
+            logger.info(f"Cross-asset report saved to: {path}")
+        except Exception as e:
+            logger.warning(f"Failed to save cross-asset report: {e}")
+
+    return result
+
+
 def calculate_gold_silver_ratio(analysis_results: Dict[str, Any], logger) -> Optional[float]:
     """Calculate and log gold-silver ratio if both metals are analyzed."""
     if len(analysis_results) >= 2 and 'gold' in analysis_results and 'silver' in analysis_results:
@@ -658,6 +756,13 @@ def main():
         # Calculate gold-silver ratio
         gold_silver_ratio = calculate_gold_silver_ratio(analysis_results, logger)
 
+        # Cross-asset ratios and correlations (optional enhancement)
+        cross_asset_result = None
+        if not args.no_cross_asset:
+            cross_asset_result = run_cross_asset_analysis(
+                analyzers, analysis_results, config, logger
+            )
+
         # Send notifications
         instruments_config = config.get('instruments', {})
         send_notifications(notifiers, analysis_results, instruments_config, logger)
@@ -673,6 +778,8 @@ def main():
             logger.info(f"  - {instrument_name}: {result['report_path']}")
             if result.get('chart_path'):
                 logger.info(f"      chart: {result['chart_path']}")
+        if cross_asset_result and cross_asset_result.get('report_path'):
+            logger.info(f"  - cross-asset: {cross_asset_result['report_path']}")
         if notifiers:
             logger.info(f"  - Notifications sent to: {', '.join(notifiers.keys())}")
         logger.info("")

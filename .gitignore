@@ -52,6 +52,15 @@ output/
 # Config with real credentials
 config/config.yaml
 
+# WorkBuddy workspace data (memory, logs, local notes)
+.workbuddy/
+
+# Test & coverage artifacts
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
 # Deprecated/unused modules (already removed from project)
 # config/news_sources.yaml
 # config/keywords.txt

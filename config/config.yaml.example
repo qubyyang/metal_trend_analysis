@@ -1,4 +1,4 @@
-# Stooq 免费数据源配置（仅日线，支持周/月线重采样）
+# 行情数据源配置（多源自动降级）
 api:
   stooq:
     base_url: "https://stooq.com/q/d/l/"
@@ -6,6 +6,27 @@ api:
     retry: 3
     retry_delay: 2
     default_kline_count: 200
+
+# 多数据源与缓存配置
+market_data:
+  # 数据源优先级，主源失败时自动降级到下一个
+  # sina  : 新浪财经，国内直连稳定，推荐作为主源
+  # stooq : 已启用 JS 反爬挑战，部分网络环境下不可用
+  # yahoo : 对部分地区返回 403，仅作末位兜底
+  providers: ["sina", "stooq", "yahoo"]
+  cache_enabled: true
+  cache_ttl: 3600          # 缓存有效期（秒）
+  cache_dir: "data/cache"
+  allow_stale_cache: true  # 所有数据源失效时，是否允许使用过期缓存兜底
+  yahoo:
+    base_url: "https://query1.finance.yahoo.com/v8/finance/chart/"
+    range: "2y"
+
+# 信号回测配置
+backtest:
+  signal_store: "data/signals/signals.jsonl"
+  horizon_days: 5      # 信号持有期（自然日），到期后评估方向是否正确
+  threshold_pct: 0.5   # 判定有效方向变动的最小幅度，低于此值计为“平”
 
 # LLM API 配置
 llm:
@@ -73,11 +94,19 @@ news:
       type: "rss"
       url: "https://www.cnbc.com/id/10000664/device/rss/rss.html"
       enabled: true
-
-    # 中文RSS新闻源 (已验证可用)
-    - name: "凤凰网财经"
+    # WSJ 市场版：贵金属结算价报道覆盖度高（如 "Comex Gold, Silver Settle Lower"）
+    - name: "WSJ Markets"
       type: "rss"
-      url: "https://finance.ifeng.com/rss/index.xml"
+      url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"
+      enabled: true
+
+    # 中文RSS新闻源
+    # 注：凤凰网财经 RSS (finance.ifeng.com/rss/index.xml) 已于 2026 年下线返回 404；
+    #     新浪财经滚动 RSS 虽返回 200，但条目为空，均不可用。
+    #     东方财富合作伙伴源实测稳定返回近百条中文财经资讯。
+    - name: "东方财富"
+      type: "rss"
+      url: "https://rss.eastmoney.com/rss_partener.xml"
       enabled: true
 
     # 其他中文源（使用 HTML 解析 + Jina AI 文本代理，确保可拉取）
@@ -143,7 +172,10 @@ notification:
 reports:
   output_dir: "output/reports"
   format: "markdown"  # markdown, html, json
-  include_charts: false
+  include_charts: true
+  chart_dir: "output/charts"
+  chart_dpi: 130
+  chart_bars: 120     # 图表展示最近多少根 K 线
 
 # 日志配置
 logging:

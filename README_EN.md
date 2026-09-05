@@ -23,14 +23,16 @@
 ## 🌟 Key Features
 
 - **🤖 AI-Driven Analysis**: Integrates GPT-4 and other large language models to generate professional market analysis and natural language reports
-- **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, and more
-- **📡 Free Market Data**: Uses Stooq free daily data with weekly/monthly resampling
+- **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, ATR, and more
+- **📡 Multi-Source Market Data**: Sina Finance as primary with Stooq / Yahoo Finance failover, plus local cache fallback for resilience
+- **📈 Technical Chart Generation**: Renders candlestick + MA + Bollinger Bands + support/resistance + MACD + RSI composite charts
+- **🎯 Signal Accuracy Backtesting**: Persists every trend call and verifies it against actual prices, reporting win rate, profit factor and expectancy
 - **📰 News Sentiment Analysis**: Integrates Bloomberg, CNBC, Phoenix Finance and other news sources for intelligent market sentiment analysis
 - **🕯️ Candlestick Pattern Recognition**: Intelligently identifies 10+ classic candlestick patterns (Doji, Hammer, Engulfing, etc.)
 - **📱 Multi-Channel Notifications**: Supports Feishu, DingTalk, Slack, Telegram, and Email. Channels auto-enable based on environment variables
 - **⚙️ Highly Configurable**: All parameters (API keys, model selection, notification channels, etc.) are configured via YAML files for flexibility
-- **🎯 Intelligent Trend Analysis**: Combines technical and fundamental analysis to automatically determine market trends (bullish/bearish/ranging)
 - **📍 Key Level Identification**: Automatically calculates and identifies important support and resistance levels
+- **✅ Tested & CI-Backed**: Full unit test suite with GitHub Actions matrix validation
 
 ---
 
@@ -138,11 +140,91 @@ python src/main.py
 # Analyze only gold
 python src/main.py --instrument gold
 
-# Analyze only silver with 1-hour timeframe
+# Analyze only silver with weekly timeframe
 python src/main.py --instrument silver --timeframe 1w
+
+# Skip chart generation for faster runs
+python src/main.py --no-chart
+
+# Backtest historical signal accuracy only
+python src/main.py --backtest
 ```
 
-After analysis is complete, reports will be saved in the `output/reports/` directory and pushed to your configured Feishu channel.
+After analysis is complete, reports are saved in `output/reports/`, charts in `output/charts/`, and pushed to your configured notification channels.
+
+## 📡 Multi-Source Data & Failover
+
+The system tries each data source in priority order, degrading automatically on failure:
+
+```
+Sina Finance (primary) → Stooq → Yahoo Finance → local cache → stale cache fallback
+```
+
+Measured source availability (Sept 2026):
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| Sina Finance | ✅ Available | Stable direct access, no auth required, **recommended primary** |
+| Stooq | ⚠️ Restricted | Now serves a JS anti-bot challenge page instead of CSV |
+| Yahoo Finance | ⚠️ Restricted | Returns 403 in some regions |
+
+Configure in `config/config.yaml`:
+
+```yaml
+market_data:
+  providers: ["sina", "stooq", "yahoo"]   # source priority
+  cache_enabled: true
+  cache_ttl: 3600                         # cache lifetime in seconds
+  allow_stale_cache: true                 # use expired cache when all sources fail
+```
+
+The `source` field in quote data indicates which provider actually served the request.
+
+## 🎯 Signal Accuracy Backtesting
+
+Every trend call is persisted (technical and LLM tracked separately). Once the
+holding period elapses, the call is verified against actual prices:
+
+```bash
+python src/main.py --backtest
+```
+
+Sample output:
+
+```
+- Signals evaluated: 42 (26 wins / 13 losses / 3 flat)
+- Win rate: 66.67%
+- Avg win: +2.14% | Avg loss: -1.38%
+- Profit factor: 1.55
+- Expectancy per signal: +0.86%
+```
+
+Configuration:
+
+```yaml
+backtest:
+  horizon_days: 5      # holding period in calendar days
+  threshold_pct: 0.5   # minimum move to count as directional; below this is "flat"
+```
+
+> Evaluation strictly uses prices **after** the signal timestamp — no lookahead bias.
+> Reports flag results as statistically insignificant below 30 samples.
+
+## 🧪 Testing
+
+```bash
+# Install test dependencies
+pip install pytest pytest-cov
+
+# Run the full suite
+pytest -v
+
+# With coverage
+pytest --cov=src --cov-report=term-missing
+
+# Check for duplicate definitions (also runs in CI)
+python scripts/check_duplicates.py
+```
 
 ## 🐳 Docker Deployment
 
@@ -300,7 +382,7 @@ metal_trend_analysis/
 ├── src/                   # Core source code
 │   ├── main.py            # 🚀 Main entry point
 │   ├── analyzers/         # 📊 Analysis modules (indicators, patterns, news sentiment)
-│   ├── data_fetchers/     # 📡 Data fetching modules (Stooq, news fetching)
+│   ├── data_fetchers/     # 📡 Data fetching modules (Sina / Stooq / Yahoo, news fetching)
 │   ├── llm/               # 🤖 LLM analysis modules
 │   ├── notification/      # 📢 Notification modules (Feishu/DingTalk/Slack/Telegram/Email)
 │   ├── reporting/         # 📄 Report generation modules
@@ -321,7 +403,7 @@ MetalTrend AI adopts a modular architecture design with clear responsibilities f
 ### Core Module Descriptions
 
 1. **Data Fetching Module** (`data_fetchers/`)
-  - Uses Stooq free data for daily market prices
+  - Uses Sina Finance (primary) with Stooq / Yahoo Finance failover for daily prices
    - Supports multiple timeframe K-line data
    - Built-in data caching mechanism to reduce API calls
 
@@ -390,7 +472,7 @@ MetalTrend AI adopts a modular architecture design with clear responsibilities f
 | **LLM/AI** | OpenAI-compatible APIs (OpenAI / DeepSeek / Qwen) |
 | **Technical Analysis** | In-house indicators (Pandas / NumPy) |
 | **Visualization** | Matplotlib, Plotly (optional) |
-| **API** | Stooq (free), Feishu / DingTalk / Slack / Telegram / Email |
+| **API** | Sina Finance / Stooq / Yahoo Finance (free), Feishu / DingTalk / Slack / Telegram / Email |
 
 ---
 

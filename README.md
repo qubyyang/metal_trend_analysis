@@ -23,14 +23,16 @@
 ## 🌟 项目特色
 
 - **🤖 AI驱动分析**: 集成GPT-4等大语言模型，生成专业市场研判和自然语言报告
-- **📊 专业技术分析**: 自动计算MA、MACD、RSI、布林带等关键技术指标
-- **📡 免费行情数据**: 基于 Stooq 免费日线数据，支持周/月线重采样
+- **📊 专业技术分析**: 自动计算MA、MACD、RSI、布林带、ATR等关键技术指标
+- **📡 多源行情数据**: 新浪财经为主源，Stooq / Yahoo Finance 为备源，主源故障时自动降级，并带本地缓存兜底
+- **📈 技术图表生成**: 自动绘制 K线+均线+布林带+支撑阻力+MACD+RSI 组合图（涨红跌绿）
+- **🎯 信号准确率回测**: 持久化每次趋势研判，到期后回溯校验，输出胜率、盈亏比与期望收益
 - **📰 新闻情感分析**: 集成Bloomberg、CNBC、凤凰网财经等新闻源，智能分析市场情绪
 - **🕯️ K线形态识别**: 智能识别十多种经典K线形态（十字星、锤子线、吞噬形态等）
 - **📱 多渠道推送**: 支持飞书、钉钉、Slack、Telegram、邮件通知，配置环境变量即可自动启用
 - **⚙️ 高度可配置**: YAML配置文件，灵活定制分析参数和模型选择
-- **🎯 智能趋势研判**: 结合技术面与基本面分析，自动判断市场趋势（看涨/看跌/震荡）
 - **📍 关键位识别**: 自动计算并标识重要的支撑位和阻力位
+- **✅ 测试与CI保障**: 完整单元测试覆盖 + GitHub Actions 多版本矩阵校验
 
 ## 成果展示
 
@@ -136,9 +138,89 @@ python src/main.py --instrument gold
 
 # 仅分析白银，并指定时间周期为 1 周
 python src/main.py --instrument silver --timeframe 1w
+
+# 跳过图表生成（加快执行速度）
+python src/main.py --no-chart
+
+# 仅回测历史信号准确率，不做新分析
+python src/main.py --backtest
 ```
 
-分析完成后，报告将保存在 `output/reports/` 目录下，同时会推送到您配置的飞书频道。
+分析完成后，报告将保存在 `output/reports/` 目录下，图表保存在 `output/charts/`，同时会推送到您配置的通知渠道。
+
+## 📡 多数据源与容错
+
+系统按优先级依次尝试各数据源，任一环节失败自动降级到下一级：
+
+```
+新浪财经（主源） → Stooq → Yahoo Finance → 本地缓存 → 过期缓存兜底
+```
+
+各数据源实测状态（2026-09）：
+
+| 数据源 | 状态 | 说明 |
+|--------|------|------|
+| 新浪财经 | ✅ 可用 | 国内直连稳定，无需鉴权，**推荐主源** |
+| Stooq | ⚠️ 受限 | 已启用 JS 反爬挑战，返回验证页而非 CSV |
+| Yahoo Finance | ⚠️ 受限 | 对部分地区返回 403 |
+
+在 `config/config.yaml` 中配置：
+
+```yaml
+market_data:
+  providers: ["sina", "stooq", "yahoo"]   # 数据源优先级
+  cache_enabled: true
+  cache_ttl: 3600                         # 缓存有效期（秒）
+  allow_stale_cache: true                 # 全部数据源失效时是否用过期缓存兜底
+```
+
+报价结果中的 `source` 字段会标明本次数据的实际来源，便于排查。
+
+## 🎯 信号准确率回测
+
+系统每次输出趋势研判时会记录一条信号（技术面与 LLM 两路分别记录）。
+在持有期结束后，用实际价格回溯校验，输出统计结果：
+
+```bash
+python src/main.py --backtest
+```
+
+输出示例：
+
+```
+- 已评估信号: 42 条（胜 26 / 负 13 / 平 3）
+- 胜率: 66.67%
+- 平均盈利: +2.14% ｜ 平均亏损: -1.38%
+- 盈亏比: 1.55
+- 单次期望收益: +0.86%
+```
+
+配置项：
+
+```yaml
+backtest:
+  horizon_days: 5      # 信号持有期（自然日）
+  threshold_pct: 0.5   # 有效方向变动的最小幅度，低于此值计为“平”
+```
+
+> 评估严格只使用信号发出**之后**的价格，不存在前视偏差。
+> 样本量低于 30 条时报告会标注统计结果不显著。
+
+## 🧪 测试
+
+```bash
+# 安装测试依赖
+pip install pytest pytest-cov
+
+# 运行全部测试
+pytest -v
+
+# 查看覆盖率
+pytest --cov=src --cov-report=term-missing
+
+# 检查重复定义（CI 中会自动执行）
+python scripts/check_duplicates.py
+```
 
 ## 🐳 Docker 部署
 
@@ -291,19 +373,25 @@ metal_trend_analysis/
 ├── images/                # README 和报告中使用的图片
 ├── output/                # 程序输出
 │   ├── logs/              # 日志文件
+│   ├── charts/            # 生成的技术图表
 │   └── reports/           # 生成的 Markdown 报告
 ├── scripts/               # 辅助脚本
+│   ├── check_duplicates.py # 重复定义静态检查
+│   └── test_news_sources.py
+├── tests/                 # ✅ 单元测试
 ├── src/                   # 核心源代码
 │   ├── main.py            # 🚀 主程序入口
-│   ├── analyzers/         # 📊 分析模块 (技术指标, K线形态, 新闻情感分析)
-│   ├── data_fetchers/     # 📡 数据获取模块 (Stooq, 新闻抓取)
+│   ├── analyzers/         # 📊 分析模块 (技术指标, K线形态, 新闻情感, 信号回测)
+│   ├── data_fetchers/     # 📡 数据获取模块 (多源行情, 降级调度, 新闻抓取)
 │   ├── llm/               # 🤖 LLM 分析模块
 │   ├── notification/      # 📢 通知模块 (飞书/钉钉/Slack/Telegram/邮件)
-│   ├── reporting/         # 📄 报告生成模块
+│   ├── reporting/         # 📄 报告与图表生成模块
 │   └── utils/             # 🛠️ 工具类 (配置加载, 日志)
+├── .github/workflows/     # CI 流水线
 ├── docker-compose.yml     # Docker Compose 配置
 ├── Dockerfile             # Docker 镜像构建
 ├── .gitignore
+├── CHANGELOG.md           # 变更日志
 ├── LICENSE
 ├── README.md              # 本文档
 ├── README_EN.md           # English README
@@ -317,15 +405,16 @@ MetalTrend AI 采用模块化架构设计，各组件职责清晰，易于扩展
 ### 核心模块说明
 
 1. **数据获取模块** (`data_fetchers/`)
-  - 对接 Stooq 免费数据获取日线行情
-   - 支持多种时间周期的K线数据
-   - 内置数据缓存机制，减少API调用
+   - `BaseDataProvider` 统一数据源接口，内置标准化与重采样
+   - 新浪财经主源 + Stooq / Yahoo Finance 备源，失败自动降级
+   - 本地磁盘缓存，全部数据源失效时可用过期缓存兜底
 
 2. **分析引擎** (`analyzers/`)
-   - 技术指标计算（MA、MACD、RSI、布林带等）
+   - 技术指标计算（MA、MACD、RSI、布林带、ATR）
    - K线形态识别（十字星、锤子线、吞噬形态等）
    - 新闻情感分析（市场情绪量化评估）
    - 趋势研判和关键位识别
+   - 信号追踪与准确率回测（无前视偏差）
 
 3. **LLM分析模块** (`llm/`)
    - 集成GPT系列大语言模型
@@ -384,7 +473,7 @@ MetalTrend AI 采用模块化架构设计，各组件职责清晰，易于扩展
 | **LLM/AI** | OpenAI 兼容 API（OpenAI / DeepSeek / Qwen） |
 | **技术分析** | 自研指标计算（Pandas / NumPy） |
 | **可视化** | Matplotlib, Plotly（可选） |
-| **API** | Stooq (free), Feishu / DingTalk / Slack / Telegram / Email |
+| **API** | 新浪财经 / Stooq / Yahoo Finance (free), Feishu / DingTalk / Slack / Telegram / Email |
 
 ---
 

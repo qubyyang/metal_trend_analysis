@@ -19,12 +19,16 @@ feedparser>=6.0.10
 # 日志
 loguru>=0.7.0
 
-# 数据可视化（可选，如需图表可自行安装）
-# matplotlib>=3.7.0
+# 数据可视化（图表生成，未安装时自动降级）
+matplotlib>=3.7.0
 # plotly>=5.18.0
 
 # 环境变量
 python-dotenv>=1.0.0
+
+# 测试
+pytest>=7.4.0
+pytest-cov>=4.1.0
 
 # 进度条（可选）
 # tqdm>=4.65.0

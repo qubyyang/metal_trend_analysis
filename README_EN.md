@@ -341,8 +341,34 @@ essentially no discrimination. Silver is worse: the strong bucket wins 46.8% aga
 55.6% for medium.
 
 Keeping this negative result instead of tuning until it looks good is the point —
-backtesting earns its keep by falsifying. The next move is to examine factor weights
-and the holding period, not to pile on more factors.
+backtesting earns its keep by falsifying.
+
+### Weight & Holding-Period Tuning Verification (done — verdict: do not tune)
+
+Verified in the only defensible order — factor IC test → weight optimisation on
+surviving factors → out-of-sample validation (`python scripts/tune_verify.py`,
+full write-up in [docs/因子调优验证报告.md](docs/因子调优验证报告.md)):
+
+1. **No factor clears the bar.** All six gold factors have |IC| < 0.09; most silver
+   factors are negative. |IC| < 0.03 is conventionally treated as noise.
+2. **Weights are not the lever.** Equal-weight and current-weight differ by 0.002 in
+   IC. The in-sample grid optimum (rsi alone) flips negative out-of-sample
+   (IS +0.124 → OOS -0.079) — textbook overfitting.
+3. **The OOS improvement is beta, not alpha.** Gold rose +82% and silver +141% over
+   the OOS window; any long-biased indicator correlates with forward returns there.
+4. **Rolling windows say the opposite.** Rolling 1-year IC (20d horizon) averages
+   **-0.269** for gold and **-0.246** for silver, negative in 7-8 of 9 windows. The
+   +0.21 full-period OOS figure is Simpson's paradox: cross-window drift manufactures
+   spurious positive correlation. The within-window negative sign is the real one.
+
+Therefore: **default weights unchanged, holding period not extended, no silver
+inversion.** All six factors are price-derived and highly collinear on precious
+metals; the way forward is orthogonal information (real rates, ETF holdings, COMEX
+inventories, DXY), not re-mixing the same price series.
+
+**The signal engine is repositioned accordingly: it is a reproducible, auditable,
+lookahead-free discipline framework — the score itself is not currently an entry
+criterion.**
 
 ### Report Dimensions
 

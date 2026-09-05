@@ -354,7 +354,7 @@ news:
 如需验证新闻源可用性，可运行测试脚本：
 
 ```bash
-python scripts/test_news_sources.py
+python scripts/check_news_sources.py
 ```
 
 默认读取 `config/config.yaml`，若不存在则读取 `config/config.yaml.example`。
@@ -377,7 +377,7 @@ metal_trend_analysis/
 │   └── reports/           # 生成的 Markdown 报告
 ├── scripts/               # 辅助脚本
 │   ├── check_duplicates.py # 重复定义静态检查
-│   └── test_news_sources.py
+│   └── check_news_sources.py
 ├── tests/                 # ✅ 单元测试
 ├── src/                   # 核心源代码
 │   ├── main.py            # 🚀 主程序入口

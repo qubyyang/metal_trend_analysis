@@ -65,3 +65,6 @@ htmlcov/
 # config/news_sources.yaml
 # config/keywords.txt
 # src/data_fetchers/news_fetcher.py
+
+# pytest temp dir (local basetemp workaround)
+.pytest_tmp/

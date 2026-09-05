@@ -9,6 +9,17 @@
 
 ### 修复
 
+- **修复 CI 测试收集失败**：`scripts/test_news_sources.py` 中的 `test_sources(fetcher)`
+  是 CLI 诊断函数，但文件名与函数名同时命中 pytest 的默认收集规则，
+  CI 执行不带路径参数的 `pytest` 时会把它当测试用例收集，
+  因 `fetcher` 参数无对应 fixture 而报 collection error
+  （本地跑 `pytest tests/` 无法复现）。三重修复：
+  - 脚本重命名为 `scripts/check_news_sources.py`，函数改名 `check_sources`；
+  - 新增 `pytest.ini` 固定 `testpaths = tests`，裸 `pytest` 也只收集测试目录；
+  - CI 的测试步骤显式改为 `pytest tests`。
+- **忽略 `.pytest_tmp/`**：本地绕过沙箱 `tmp_path` 权限限制所用的 `--basetemp`
+  产物目录已加入 `.gitignore`，避免误入库。
+
 - **消除重复方法定义**：`TechnicalAnalyzer`、`NewsFetcher`、`LLMAnalyzer`、
   `DingTalkNotifier` 中存在同名方法被定义两次的问题，后定义者静默覆盖前者，
   导致实际运行的是缺乏异常保护的低质量实现。具体影响：

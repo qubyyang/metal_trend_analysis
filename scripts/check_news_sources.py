@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Test configured news sources and print item counts."""
+"""Check configured news sources and print item counts.
+
+This is a CLI diagnostic script, not a pytest test module. It is deliberately
+named ``check_*`` so pytest does not attempt to collect ``check_sources`` as a
+test function (which would fail on the unresolvable ``fetcher`` fixture).
+"""
 
 from __future__ import annotations
 
@@ -32,7 +37,7 @@ def load_config(config_path: Path) -> Dict[str, Any]:
     return loader.load_main_config(config_path.name)
 
 
-def test_sources(fetcher: NewsFetcher) -> List[Tuple[str, str, int]]:
+def check_sources(fetcher: NewsFetcher) -> List[Tuple[str, str, int]]:
     results: List[Tuple[str, str, int]] = []
 
     for source in fetcher.sources:
@@ -59,7 +64,7 @@ def test_sources(fetcher: NewsFetcher) -> List[Tuple[str, str, int]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Test news sources in config")
+    parser = argparse.ArgumentParser(description="Check news sources in config")
     parser.add_argument("--config", type=str, default=None, help="Config path")
     args = parser.parse_args()
 
@@ -70,9 +75,9 @@ def main() -> int:
     fetcher = NewsFetcher(config=news_config, keywords=[])
     fetcher.fetch_config["delay"] = 0
 
-    results = test_sources(fetcher)
+    results = check_sources(fetcher)
 
-    print("News source test results:")
+    print("News source check results:")
     for name, status, count in results:
         print(f"- {name}: {status}, items={count}")
 

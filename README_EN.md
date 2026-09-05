@@ -358,7 +358,7 @@ News sentiment analysis results are integrated into the final Markdown reports:
 Use the test script to validate news source availability:
 
 ```bash
-python scripts/test_news_sources.py
+python scripts/check_news_sources.py
 ```
 
 It reads `config/config.yaml` by default, falling back to `config/config.yaml.example` if missing.

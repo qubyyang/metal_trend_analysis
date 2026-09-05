@@ -597,3 +597,205 @@ class TestExtendedStats:
 
         stats = tracker.evaluate("XAUUSD", prices)
         json.dumps(stats["details"], ensure_ascii=False)
+
+
+class TestLLMConfidenceTracking:
+    """LLM 层必须接受与技术层同等的证伪标准。"""
+
+    def test_record_persists_llm_confidence(self, tracker):
+        record = tracker.record(
+            "XAUUSD",
+            {"price": 2000.0},
+            {"trend": "bullish"},
+            llm_analysis={
+                "analysis": {"trend": "看涨", "confidence": "高", "risk_level": "中"},
+                "parse_mode": "json",
+            },
+        )
+        assert record["llm_direction"] == "bullish"
+        assert record["llm_confidence"] == "高"
+        assert record["llm_risk_level"] == "中"
+        assert record["llm_parse_mode"] == "json"
+
+    def test_record_without_llm_leaves_fields_none(self, tracker):
+        record = tracker.record("XAUUSD", {"price": 2000.0}, {"trend": "bullish"})
+        assert record["llm_confidence"] is None
+        assert record["llm_parse_mode"] is None
+
+    @staticmethod
+    def _seed(tracker, price_df, entries):
+        """entries: [(confidence, direction, will_win)]"""
+        base = price_df.index[0]
+        for i, (conf, direction, win) in enumerate(entries):
+            entry_price = 100.0
+            tracker._append({
+                "signal_id": f"S{i}",
+                "symbol": "XAUUSD",
+                "created_at": (base + timedelta(days=i)).isoformat(),
+                "entry_price": entry_price,
+                "technical_direction": direction,
+                "llm_direction": direction,
+                "llm_confidence": conf,
+                "horizon_days": 5,
+                "evaluated": False,
+            })
+
+    def test_confidence_buckets_detect_no_discrimination(self, tracker):
+        """高置信档若不优于低置信档，必须明确判定为缺乏区分度。"""
+        # 构造 40 天单调上涨行情，所有 bullish 信号都会赢
+        idx = pd.date_range("2024-01-01", periods=60, freq="D")
+        closes = np.linspace(100.0, 130.0, 60)
+        price_df = pd.DataFrame({"close": closes}, index=idx)
+
+        # 高置信 12 条全对，低置信 12 条也全对 -> 无区分度
+        entries = [("高", "bullish", True)] * 12 + [("低", "bullish", True)] * 12
+        self._seed(tracker, price_df, entries)
+
+        buckets = tracker.confidence_buckets("XAUUSD", price_df)
+        by = {b["confidence"]: b for b in buckets}
+        assert "高" in by and "低" in by
+        assert by["高"]["count"] == 12
+        assert by["低"]["count"] == 12
+
+        text = tracker.format_confidence_buckets("XAUUSD", price_df)
+        assert "置信度缺乏区分度" in text
+
+    def test_confidence_buckets_report_insufficient_sample(self, tracker):
+        idx = pd.date_range("2024-01-01", periods=40, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 120.0, 40)}, index=idx)
+        self._seed(tracker, price_df, [("高", "bullish", True)] * 3)
+
+        text = tracker.format_confidence_buckets("XAUUSD", price_df)
+        assert "样本不足" in text
+
+    def test_confidence_buckets_empty_without_llm_records(self, tracker):
+        idx = pd.date_range("2024-01-01", periods=40, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 120.0, 40)}, index=idx)
+        tracker.record("XAUUSD", {"price": 100.0}, {"trend": "bullish"})
+        assert tracker.confidence_buckets("XAUUSD", price_df) == []
+        assert tracker.format_confidence_buckets("XAUUSD", price_df) == ""
+
+
+class TestCollectEvaluatedNotTruncated:
+    def test_full_sample_used_not_last_20(self, tracker):
+        """details 只留最后 20 条用于展示；分层统计必须用全量，否则静默丢样本。"""
+        idx = pd.date_range("2024-01-01", periods=90, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 160.0, 90)}, index=idx)
+        base = idx[0]
+        for i in range(40):
+            tracker._append({
+                "signal_id": f"T{i}",
+                "symbol": "XAUUSD",
+                "created_at": (base + timedelta(days=i)).isoformat(),
+                "entry_price": 100.0,
+                "technical_direction": "bullish",
+                "horizon_days": 5,
+                "evaluated": False,
+            })
+
+        full = tracker._collect_evaluated("XAUUSD", price_df, "technical_direction")
+        stats = tracker.evaluate("XAUUSD", price_df, "technical_direction")
+        assert len(full) == stats["total_evaluated"]
+        assert len(full) > 20
+        assert len(stats["details"]) == 20
+
+
+class TestLLMConfidenceTracking:
+    """LLM 层必须接受与技术层同等的证伪标准。"""
+
+    def test_record_persists_llm_confidence(self, tracker):
+        record = tracker.record(
+            "XAUUSD",
+            {"price": 2000.0},
+            {"trend": "bullish"},
+            llm_analysis={
+                "analysis": {"trend": "看涨", "confidence": "高", "risk_level": "中"},
+                "parse_mode": "json",
+            },
+        )
+        assert record["llm_direction"] == "bullish"
+        assert record["llm_confidence"] == "高"
+        assert record["llm_risk_level"] == "中"
+        assert record["llm_parse_mode"] == "json"
+
+    def test_record_without_llm_leaves_fields_none(self, tracker):
+        record = tracker.record("XAUUSD", {"price": 2000.0}, {"trend": "bullish"})
+        assert record["llm_confidence"] is None
+        assert record["llm_parse_mode"] is None
+
+    @staticmethod
+    def _seed(tracker, price_df, entries):
+        """entries: [(confidence, direction, will_win)]"""
+        base = price_df.index[0]
+        for i, (conf, direction, win) in enumerate(entries):
+            entry_price = 100.0
+            tracker._append({
+                "signal_id": f"S{i}",
+                "symbol": "XAUUSD",
+                "created_at": (base + timedelta(days=i)).isoformat(),
+                "entry_price": entry_price,
+                "technical_direction": direction,
+                "llm_direction": direction,
+                "llm_confidence": conf,
+                "horizon_days": 5,
+                "evaluated": False,
+            })
+
+    def test_confidence_buckets_detect_no_discrimination(self, tracker):
+        """高置信档若不优于低置信档，必须明确判定为缺乏区分度。"""
+        # 构造 40 天单调上涨行情，所有 bullish 信号都会赢
+        idx = pd.date_range("2024-01-01", periods=60, freq="D")
+        closes = np.linspace(100.0, 130.0, 60)
+        price_df = pd.DataFrame({"close": closes}, index=idx)
+
+        # 高置信 12 条全对，低置信 12 条也全对 -> 无区分度
+        entries = [("高", "bullish", True)] * 12 + [("低", "bullish", True)] * 12
+        self._seed(tracker, price_df, entries)
+
+        buckets = tracker.confidence_buckets("XAUUSD", price_df)
+        by = {b["confidence"]: b for b in buckets}
+        assert "高" in by and "低" in by
+        assert by["高"]["count"] == 12
+        assert by["低"]["count"] == 12
+
+        text = tracker.format_confidence_buckets("XAUUSD", price_df)
+        assert "置信度缺乏区分度" in text
+
+    def test_confidence_buckets_report_insufficient_sample(self, tracker):
+        idx = pd.date_range("2024-01-01", periods=40, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 120.0, 40)}, index=idx)
+        self._seed(tracker, price_df, [("高", "bullish", True)] * 3)
+
+        text = tracker.format_confidence_buckets("XAUUSD", price_df)
+        assert "样本不足" in text
+
+    def test_confidence_buckets_empty_without_llm_records(self, tracker):
+        idx = pd.date_range("2024-01-01", periods=40, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 120.0, 40)}, index=idx)
+        tracker.record("XAUUSD", {"price": 100.0}, {"trend": "bullish"})
+        assert tracker.confidence_buckets("XAUUSD", price_df) == []
+        assert tracker.format_confidence_buckets("XAUUSD", price_df) == ""
+
+
+class TestCollectEvaluatedNotTruncated:
+    def test_full_sample_used_not_last_20(self, tracker):
+        """details 只留最后 20 条用于展示；分层统计必须用全量，否则静默丢样本。"""
+        idx = pd.date_range("2024-01-01", periods=90, freq="D")
+        price_df = pd.DataFrame({"close": np.linspace(100.0, 160.0, 90)}, index=idx)
+        base = idx[0]
+        for i in range(40):
+            tracker._append({
+                "signal_id": f"T{i}",
+                "symbol": "XAUUSD",
+                "created_at": (base + timedelta(days=i)).isoformat(),
+                "entry_price": 100.0,
+                "technical_direction": "bullish",
+                "horizon_days": 5,
+                "evaluated": False,
+            })
+
+        full = tracker._collect_evaluated("XAUUSD", price_df, "technical_direction")
+        stats = tracker.evaluate("XAUUSD", price_df, "technical_direction")
+        assert len(full) == stats["total_evaluated"]
+        assert len(full) > 20
+        assert len(stats["details"]) == 20

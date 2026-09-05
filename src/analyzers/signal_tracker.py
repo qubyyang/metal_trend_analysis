@@ -79,10 +79,16 @@ class SignalTracker:
             return None
 
         llm_direction = None
+        llm_confidence = None
+        llm_risk = None
+        llm_parse_mode = None
         if llm_analysis:
             analysis = llm_analysis.get("analysis") or {}
             if isinstance(analysis, dict):
                 llm_direction = analysis.get("trend")
+                llm_confidence = analysis.get("confidence")
+                llm_risk = analysis.get("risk_level")
+            llm_parse_mode = llm_analysis.get("parse_mode")
 
         record = {
             "signal_id": f"{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
@@ -97,6 +103,11 @@ class SignalTracker:
             "signal_direction": technical_data.get("signal_direction"),
             "signal_confidence": technical_data.get("signal_confidence"),
             "llm_direction": normalize_direction(llm_direction) if llm_direction else None,
+            # LLM 侧同样需要接受证伪：留存置信度与解析模式，
+            # 才能验证「高置信度是否真的更准」以及正则回退路径的可靠性。
+            "llm_confidence": llm_confidence,
+            "llm_risk_level": llm_risk,
+            "llm_parse_mode": llm_parse_mode,
             "macd_signal": technical_data.get("macd_signal"),
             "rsi": technical_data.get("rsi"),
             "rsi_signal": technical_data.get("rsi_signal"),
@@ -156,13 +167,29 @@ class SignalTracker:
         Returns:
             统计结果字典
         """
+        evaluated = self._collect_evaluated(
+            symbol, price_df, direction_field, horizon_days, source
+        )
+        if not evaluated:
+            return self._empty_stats(symbol, direction_field)
+        return self._summarize(symbol, direction_field, evaluated)
+
+    def _collect_evaluated(
+        self,
+        symbol: str,
+        price_df: pd.DataFrame,
+        direction_field: str = "technical_direction",
+        horizon_days: Optional[int] = None,
+        source: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """收集全量已到期的评估结果（未截断），供 evaluate 与分层统计共用"""
         records = [r for r in self.load_all() if r.get("symbol") == symbol]
         if source is not None:
             records = [
                 r for r in records if (r.get("source") or "live") == source
             ]
         if not records or price_df is None or price_df.empty:
-            return self._empty_stats(symbol, direction_field)
+            return []
 
         closes = price_df["close"].sort_index()
         evaluated: List[Dict[str, Any]] = []
@@ -220,10 +247,11 @@ class SignalTracker:
                 "directional_return": round(directional_return, 3),
                 "outcome": outcome,
                 "signal_score": record.get("signal_score"),
+                "llm_confidence": record.get("llm_confidence"),
                 "source": record.get("source") or "live",
             })
 
-        return self._summarize(symbol, direction_field, evaluated)
+        return evaluated
 
     def _summarize(
         self, symbol: str, direction_field: str, evaluated: List[Dict[str, Any]]
@@ -374,6 +402,84 @@ class SignalTracker:
                 "avg_return_pct": round(sum(returns) / len(returns), 3),
             })
         return buckets
+
+    def confidence_buckets(
+        self,
+        symbol: str,
+        price_df: pd.DataFrame,
+    ) -> List[Dict[str, Any]]:
+        """按 LLM 自报置信度分层统计胜率。
+
+        这是对 LLM 层的证伪检验：模型说"高置信度"时是否真的更准？
+        若高置信档胜率不高于低置信档，说明置信度只是措辞风格，
+        不携带信息量，报告中就不应据此加权。
+
+        注意：不能读 evaluate() 的 details —— 它只保留最后 20 条用于展示，
+        直接取会静默丢样本。这里用 _collect_evaluated 拿全量。
+        """
+        evaluated = self._collect_evaluated(symbol, price_df, "llm_direction")
+        scored = [
+            e for e in evaluated
+            if e.get("llm_confidence") and e["outcome"] in ("win", "loss")
+        ]
+        if not scored:
+            return []
+
+        buckets = []
+        for level in ("高", "中", "低"):
+            items = [e for e in scored if e["llm_confidence"] == level]
+            if not items:
+                continue
+            wins = sum(1 for e in items if e["outcome"] == "win")
+            returns = [e["directional_return"] for e in items]
+            buckets.append({
+                "confidence": level,
+                "count": len(items),
+                "win_rate": round(wins / len(items) * 100, 2),
+                "avg_return_pct": round(sum(returns) / len(returns), 3),
+            })
+        return buckets
+
+    def format_confidence_buckets(
+        self,
+        symbol: str,
+        price_df: pd.DataFrame,
+    ) -> str:
+        """渲染 LLM 置信度分层表，并给出是否具备区分度的判定"""
+        buckets = self.confidence_buckets(symbol, price_df)
+        if not buckets:
+            return ""
+
+        lines = [
+            f"**{symbol} LLM 置信度分层**",
+            "",
+            "| 置信度 | 样本 | 胜率 | 平均收益 |",
+            "|--------|------|------|----------|",
+        ]
+        for b in buckets:
+            lines.append(
+                f"| {b['confidence']} | {b['count']} | "
+                f"{b['win_rate']:.1f}% | {b['avg_return_pct']:+.3f}% |"
+            )
+
+        by_level = {b["confidence"]: b for b in buckets}
+        high, low = by_level.get("高"), by_level.get("低")
+        lines.append("")
+        if high and low and high["count"] >= 10 and low["count"] >= 10:
+            gap = high["win_rate"] - low["win_rate"]
+            if gap > 5:
+                lines.append(
+                    f"判定: 高置信档胜率高出低置信档 {gap:.1f} 个百分点，"
+                    "置信度具备一定区分度。"
+                )
+            else:
+                lines.append(
+                    f"判定: 高置信档仅高出 {gap:.1f} 个百分点，"
+                    "**置信度缺乏区分度**，应视为措辞而非信息。"
+                )
+        else:
+            lines.append("判定: 各档样本不足（需每档 ≥10），暂无法判断置信度是否有效。")
+        return "\n".join(lines)
 
     def benchmark(
         self,

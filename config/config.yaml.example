@@ -60,6 +60,10 @@ llm:
   temperature: 0.7
   max_tokens: 2000
   timeout: 60
+  # 是否请求结构化 JSON 输出。部分自建网关不支持 response_format 参数，
+  # 首次调用失败后会自动降级为普通文本 + 正则抽取（置信度将标为“低”）。
+  # 若已知网关不支持，可直接设为 false 省去一次失败调用。
+  response_format_json: true
 
 # 分析品种配置
 instruments:

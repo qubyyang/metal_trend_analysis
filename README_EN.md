@@ -22,7 +22,7 @@
 
 ## 🌟 Key Features
 
-- **🤖 AI-Driven Analysis**: Integrates GPT-4 and other large language models to generate professional market analysis and natural language reports
+- **🤖 AI-Driven Analysis**: Integrates GPT-4 and other LLMs, emitting schema-validated structured verdicts; the prompt embeds backtest falsification findings so the model cannot endorse a statistically insignificant technical signal
 - **📊 Professional Technical Analysis**: Automatically calculates key technical indicators including MA, MACD, RSI, Bollinger Bands, ATR, and more
 - **🧮 Factor-Based Signal Scoring**: Six weighted factors aggregate into a continuous -100~+100 score, replacing signal-count voting; invalid factors release their weight, and an ATR volatility gate modulates confidence
 - **📡 Multi-Source Market Data**: Sina Finance as primary with Sina Forex / Stooq / Yahoo Finance failover, plus local cache fallback for resilience
@@ -369,6 +369,60 @@ inventories, DXY), not re-mixing the same price series.
 **The signal engine is repositioned accordingly: it is a reproducible, auditable,
 lookahead-free discipline framework — the score itself is not currently an entry
 criterion.**
+
+## 🤖 LLM Analysis Layer
+
+Since the technical signal has been falsified, the goal of the LLM layer is not to
+make conclusions sound better — it is to make them **verifiable**.
+
+### The prompt states that the technical signal is unreliable
+
+Backtest findings are injected directly into the prompt. The model must comply:
+
+- Do NOT treat the technical score as independent directional evidence — it has no
+  demonstrated predictive power
+- Technical indicators may only describe current market state, never future direction
+- If the conclusion rests mainly on technicals, confidence **must** be marked "low"
+- With no informative evidence, honestly output "neutral + low confidence" rather
+  than inventing reasons
+
+The model also sees each of the six factor scores and which were excluded, instead
+of just a headline number — so it can judge evidence strength rather than parrot a verdict.
+
+### News must be classified by causal direction
+
+Each article is classified as **cause-driven** (Fed decisions, CPI prints, geopolitics),
+**lagging-reaction** ("gold hit a record on haven demand"), or **expectation-shaping**
+(upcoming releases).
+
+The key constraint: lagging-reaction news is not directional evidence — it is a mirror
+of price, and using it as a reason is circular. If all news is lagging, the model must
+state "news carries no independent information" and lower its confidence.
+
+### Output is contract-checked, not trusted
+
+`response_format=json_object` is requested (auto-fallback when the gateway lacks
+support), and every response is validated:
+
+| Check | Handling |
+|-------|----------|
+| Illegal enum (e.g. trend="soaring") | Normalised against a whitelist (CN/EN aliases), else downgraded |
+| Non-numeric target price | Set to null — never guessed |
+| High confidence with no supporting points | **Forcibly downgraded to medium**, reason logged |
+| No valid JSON returned | Regex fallback, confidence pinned to "low" |
+| Parsing fails entirely | Returns safe legal values, never emits `'N/A'` downstream |
+
+Every downgrade is recorded in `schema_warnings` for traceability.
+
+### The LLM is falsified too
+
+`--backtest` now applies the **same** scrutiny to the LLM path as to the technical
+one: win rate, significance testing, buy-and-hold benchmark — plus a **confidence-
+stratified win rate** that tests whether "high confidence" is actually more accurate.
+
+If the high-confidence bucket does not beat the low-confidence bucket, the report
+states plainly that confidence lacks discrimination and should be read as phrasing,
+not information. Being AI-generated earns no exemption from the evidence standard.
 
 ### Report Dimensions
 

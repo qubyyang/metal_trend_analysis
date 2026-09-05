@@ -701,19 +701,26 @@ def run_backtest(
 
             sections.append(f"**{label}**\n\n" + signal_tracker.format_report(stats))
 
-            # 只对技术信号做基准对比：胜率脱离买入持有基准没有意义
-            if field == 'technical_direction':
-                benchmark = signal_tracker.benchmark(price_df)
-                bench_text = signal_tracker.format_benchmark(symbol, stats, benchmark)
-                if bench_text:
-                    sections.append(bench_text)
-                    if benchmark.get('available'):
-                        edge = stats['avg_return_pct'] - benchmark['avg_return_pct']
-                        logger.info(
-                            f"{symbol} strategy {stats['avg_return_pct']:+.3f}% vs "
-                            f"buy-and-hold {benchmark['avg_return_pct']:+.3f}% "
-                            f"(edge {edge:+.3f}%)"
-                        )
+            # 两路都要对照买入持有基准：胜率脱离基准没有意义。
+            # LLM 路同样必须接受证伪，不能因为“是 AI 给的”就豁免。
+            benchmark = signal_tracker.benchmark(price_df)
+            bench_text = signal_tracker.format_benchmark(symbol, stats, benchmark)
+            if bench_text:
+                sections.append(f"*{label} 基准对比*\n\n" + bench_text)
+                if benchmark.get('available') and stats['total_evaluated'] > 0:
+                    edge = stats['avg_return_pct'] - benchmark['avg_return_pct']
+                    logger.info(
+                        f"{symbol} [{label}] strategy {stats['avg_return_pct']:+.3f}% vs "
+                        f"buy-and-hold {benchmark['avg_return_pct']:+.3f}% "
+                        f"(edge {edge:+.3f}%)"
+                    )
+
+            # LLM 置信度分层：验证“高置信度是否真的更准”。
+            # 若高置信档胜率不高于低置信档，说明置信度只是措辞而非信息。
+            if field == 'llm_direction' and stats['total_evaluated'] > 0:
+                conf_text = signal_tracker.format_confidence_buckets(symbol, price_df)
+                if conf_text:
+                    sections.append(conf_text)
 
         # 衰减曲线只对技术信号计算——LLM 信号样本通常太少，
         # 分成 5 个持有期后每格都不足以说明问题
